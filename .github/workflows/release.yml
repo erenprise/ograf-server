@@ -1,0 +1,72 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*.*.*"
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        runs-on: windows-latest
+        timeout-minutes: 20
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v7
+              with:
+                  node-version: "26"
+                  architecture: x64
+
+            - name: Setup Yarn
+              shell: pwsh
+              run: |
+                  npm uninstall --global yarn pnpm
+                  npm install --global corepack@latest
+                  corepack enable
+                  corepack install --global yarn@stable
+                  yarn --version
+
+            - name: Install dependencies
+              run: yarn install --immutable
+
+            - name: Validate version
+              shell: pwsh
+              run: |
+                  $version = (Get-Content package.json | ConvertFrom-Json).version
+                  $expectedTag = "v$version"
+
+                  if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+                      throw "Tag '$env:GITHUB_REF_NAME' does not match package.json version '$expectedTag'"
+                  }
+
+            - name: Build executable
+              run: yarn build:exe
+
+            - name: Create release ZIP
+              shell: pwsh
+              run: |
+                  $version = (Get-Content package.json | ConvertFrom-Json).version
+                  $zip = "build/ograf-server-v$version-windows-x64.zip"
+
+                  Compress-Archive `
+                      -LiteralPath "build/ograf-server.exe" `
+                      -DestinationPath $zip `
+                      -Force
+
+                  "RELEASE_ZIP=$zip" >> $env:GITHUB_ENV
+
+            - name: Create GitHub Release
+              shell: pwsh
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ZIP" `
+                      --verify-tag `
+                      --generate-notes `
+                      --title "OGraf Server $env:GITHUB_REF_NAME"

@@ -1,0 +1,25 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "env": {
+        "browser": true,
+        "node": true
+    },
+    "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "react"],
+    "categories": {
+        "correctness": "deny",
+        "perf": "error",
+        "suspicious": "warn"
+    },
+    "options": {
+        "typeAware": true,
+        "typeCheck": true,
+        "reportUnusedDisableDirectives": "error"
+    },
+    "rules": {
+        "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }],
+        "no-underscore-dangle": ["warn", { "allow": ["__OGRAF_RENDERER__"] }],
+        "react/react-in-jsx-scope": "off",
+        "curly": "warn"
+    },
+    "ignorePatterns": ["dist/**", "src/generated/**"]
+}

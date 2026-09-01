@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json.schemastore.org/tsconfig",
+    "compilerOptions": {
+        "target": "ES2023",
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "resolveJsonModule": true,
+        "moduleDetection": "force",
+        "jsx": "react-jsx",
+        "types": ["node"],
+
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "erasableSyntaxOnly": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "incremental": true,
+        "tsBuildInfoFile": "${configDir}/.cache/tsbuildinfo.json",
+
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitOverride": true,
+        "forceConsistentCasingInFileNames": true,
+
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true
+    },
+    "include": ["src", "scripts", "vite.config.ts", "*.config.ts"],
+    "exclude": ["node_modules", ".cache", "build", "dist", "ograf-server", "src/generated"]
+}

@@ -1,0 +1,6 @@
+{
+    "$schema": "./node_modules/knip/schema.json",
+    "entry": ["src/renderer/main.ts"],
+    "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "!src/generated/**"],
+    "ignoreIssues": {}
+}

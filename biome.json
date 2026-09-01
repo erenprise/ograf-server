@@ -1,0 +1,95 @@
+{
+    "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    },
+    "files": {
+        "ignoreUnknown": true,
+        "includes": ["./src/**", "./scripts/**", "./*.{js,json,jsonc,mjs,ts}", "./*.html", "!!src/generated"]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 120
+    },
+    "linter": {
+        "enabled": true,
+        "domains": {
+            "react": "recommended",
+            "test": "none"
+        },
+        "rules": {
+            "preset": "recommended",
+            "a11y": "warn",
+            "complexity": {
+                "preset": "recommended",
+                "noExcessiveCognitiveComplexity": {
+                    "level": "warn",
+                    "options": {
+                        "maxAllowedComplexity": 29
+                    }
+                }
+            },
+            "correctness": {
+                "preset": "recommended"
+            },
+            "nursery": {
+                "preset": "recommended"
+            },
+            "performance": {
+                "preset": "recommended"
+            },
+            "security": {
+                "preset": "recommended"
+            },
+            "style": {
+                "preset": "recommended",
+                "useBlockStatements": "error",
+                "useConsistentTypeDefinitions": {
+                    "level": "error",
+                    "options": {
+                        "style": "type"
+                    }
+                },
+                "useConsistentObjectDefinitions": {
+                    "level": "error",
+                    "options": {
+                        "syntax": "explicit"
+                    }
+                },
+                "useConsistentMemberAccessibility": {
+                    "level": "error",
+                    "options": {
+                        "accessibility": "explicit"
+                    }
+                },
+                "useEnumInitializers": "warn"
+            },
+            "suspicious": {
+                "preset": "recommended",
+                "noConstEnum": "warn"
+            }
+        }
+    },
+    "assist": {
+        "enabled": true,
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    },
+    "css": {
+        "parser": {
+            "cssModules": true
+        }
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "double"
+        }
+    }
+}

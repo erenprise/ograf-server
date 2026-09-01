@@ -1,0 +1,101 @@
+{
+    "name": "ograf-server",
+    "version": "0.1.0",
+    "description": "EBU OGraf v1 Server API implementation for managing and rendering broadcast graphics",
+    "license": "GPL-3.0-or-later",
+    "author": "erenprise<info@erenprise.com>",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/erenprise/ograf-server.git"
+    },
+    "type": "module",
+    "scripts": {
+        "build": "yarn fetch:ograf && vite build",
+        "build:exe": "yarn build && yarn build:server && node scripts/build-exe.ts",
+        "build:server": "vite build --ssr src/server/start.ts",
+        "check": "yarn lint && yarn build",
+        "clean": "rm -rf .cache build dist",
+        "dev": "yarn fetch:ograf && NODE_ENV=development node --watch --watch-path=./src/ --watch-preserve-output src/server/start.ts",
+        "fetch:ograf": "node scripts/fetch-ograf-assets.ts",
+        "knip": "knip --cache",
+        "lint": "concurrently 'yarn lint:ts' 'yarn lint:oxlint' 'yarn lint:oxfmt' 'yarn lint:biome' 'yarn lint:knip'",
+        "lint:biome": "biome lint",
+        "lint:biome:fix": "biome lint --write",
+        "lint:fix": "yarn lint:oxlint:fix; yarn lint:oxfmt:fix; yarn lint:biome:fix; yarn lint:knip:fix",
+        "lint:knip": "knip --cache",
+        "lint:knip:fix": "knip --cache --fix --fix-type exports,types",
+        "lint:oxfmt": "oxfmt --check",
+        "lint:oxfmt:fix": "oxfmt",
+        "lint:oxlint": "oxlint ./src/ ./scripts/ ./vite.config.ts",
+        "lint:oxlint:fix": "oxlint --fix --fix-suggestions ./src/ ./scripts/ ./vite.config.ts",
+        "lint:ts": "tsc --noEmit -p tsconfig.json",
+        "ncu": "yarn dlx npm-check-updates",
+        "preview": "yarn build && yarn start",
+        "release": "release-it",
+        "start": "NODE_ENV=production node src/server/start.ts",
+        "test": "node --test scripts/assets.test.ts"
+    },
+    "dependencies": {
+        "@chakra-ui/react": "^3.37.0",
+        "@emotion/react": "^11.14.0",
+        "@hono/node-server": "^2.1.1",
+        "@hono/standard-validator": "^0.4.0",
+        "@mjackson/multipart-parser": "^0.10.1",
+        "@scalar/hono-api-reference": "^0.12.2",
+        "@streamshapers/ograf-validator-core": "0.2.1",
+        "@tanstack/react-query": "^5.103.1",
+        "@tanstack/react-router": "^1.170.38",
+        "fflate": "^0.8.3",
+        "hono": "^4.13.8",
+        "ograf": "1.2.0",
+        "ograf-form": "^1.1.0",
+        "openapi-fetch": "^0.17.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+        "valibot": "^1.5.0",
+        "ws": "^8.21.3"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.5.14",
+        "@types/node": "^26",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "@types/ws": "^8.18.1",
+        "@vitejs/plugin-react": "^6.1.1",
+        "concurrently": "^10.0.5",
+        "knip": "^6.37.0",
+        "oxfmt": "^0.68.0",
+        "oxlint": "^1.83.0",
+        "oxlint-tsgolint": "^7.0.2002",
+        "release-it": "^21.1.0",
+        "typescript": "^7.0.2",
+        "vite": "^8.3.0"
+    },
+    "engines": {
+        "node": ">=26.0.0",
+        "yarn": ">=4.18.0"
+    },
+    "packageManager": "yarn@4.18.0",
+    "release-it": {
+        "hooks": {
+            "before:init": [
+                "yarn lint",
+                "yarn test"
+            ]
+        },
+        "git": {
+            "requireBranch": "main",
+            "requireCleanWorkingDir": true,
+            "commitMessage": "release: v${version}",
+            "tagName": "v${version}",
+            "push": true
+        },
+        "github": {
+            "release": false
+        },
+        "npm": {
+            "publish": false,
+            "skipChecks": true
+        }
+    }
+}
