@@ -3,7 +3,8 @@
     "version": "1.0.0",
     "description": "EBU OGraf v1 Server API implementation for managing and rendering broadcast graphics",
     "license": "GPL-3.0-or-later",
-    "author": "erenprise<info@erenprise.com>",
+    "author": "erenprise <info@erenprise.com> (https://erenprise.com)",
+    "homepage": "https://github.com/erenprise/ograf-server",
     "repository": {
         "type": "git",
         "url": "https://github.com/erenprise/ograf-server.git"
