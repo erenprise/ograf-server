@@ -1773,21 +1773,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tanstack/query-core@npm:5.103.1":
-  version: 5.103.1
-  resolution: "@tanstack/query-core@npm:5.103.1"
-  checksum: 10/b8b8b37c1b3230f4683ec03e4c5a93ba353c3b0d110afcc938a70d4ef68c533f57a78dc6838c21efb3d9cbeec6bb1cbe86d529557803b89d8c0c20e3eda7c380
+"@tanstack/query-core@npm:5.103.2":
+  version: 5.103.2
+  resolution: "@tanstack/query-core@npm:5.103.2"
+  checksum: 10/f19ea502e50fd4d0241fc6796d9303637666ce139b751c875eb9f1680278f20bce2dc95d9fbab30f3a997a456e02f9760e6ce9e4e58db71e256591e77bbc65c9
   languageName: node
   linkType: hard
 
-"@tanstack/react-query@npm:^5.103.1":
-  version: 5.103.1
-  resolution: "@tanstack/react-query@npm:5.103.1"
+"@tanstack/react-query@npm:^5.103.2":
+  version: 5.103.2
+  resolution: "@tanstack/react-query@npm:5.103.2"
   dependencies:
-    "@tanstack/query-core": "npm:5.103.1"
+    "@tanstack/query-core": "npm:5.103.2"
   peerDependencies:
     react: ^18 || ^19
-  checksum: 10/4b90b441f2249b09aaf4e4027de8c10c2624b989e2765a76a02b97233aa701324cdd95a5bac116b0f839a2af52a02c85e1c4c4b542e4f3f9deee96aaffa8eb49
+  checksum: 10/ae29a0a4893dc8a66791fd6f7e557294aaf9badab22943fa461a0283c3b4eea0778999d31314b1afd57006bdd2032f2f6644000a56bc83ebf0feaac143ca2b05
   languageName: node
   linkType: hard
 
@@ -4211,7 +4211,7 @@ __metadata:
     "@mjackson/multipart-parser": "npm:^0.10.1"
     "@scalar/hono-api-reference": "npm:^0.12.2"
     "@streamshapers/ograf-validator-core": "npm:0.2.1"
-    "@tanstack/react-query": "npm:^5.103.1"
+    "@tanstack/react-query": "npm:^5.103.2"
     "@tanstack/react-router": "npm:^1.170.38"
     "@types/node": "npm:^26"
     "@types/react": "npm:^19.3.0"
@@ -4222,7 +4222,7 @@ __metadata:
     fflate: "npm:^0.8.3"
     hono: "npm:^4.13.8"
     knip: "npm:^6.37.0"
-    ograf: "npm:1.2.0"
+    ograf: "npm:1.2.1"
     ograf-form: "npm:^1.1.0"
     openapi-fetch: "npm:^0.17.0"
     oxfmt: "npm:^0.68.0"
@@ -4238,10 +4238,10 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"ograf@npm:1.2.0":
-  version: 1.2.0
-  resolution: "ograf@npm:1.2.0"
-  checksum: 10/b18704de6c971bb501ff7cd1feebfec222d6213d97e67995117cfbddf838ed98cb0a50215bf62bae26ebdc37093b63ec19f8ef4935ba3321cbd3fe7e42f85afc
+"ograf@npm:1.2.1":
+  version: 1.2.1
+  resolution: "ograf@npm:1.2.1"
+  checksum: 10/b829592ce2efa53761143636c705894591c2cd52b2e74c88a11be218919c3e53123086331971288c66f50e2f9707ba8459a4cab798735e64e4999c50bd838dae
   languageName: node
   linkType: hard
 
