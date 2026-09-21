@@ -10,6 +10,7 @@ import {
     Flex,
     Heading,
     HStack,
+    IconButton,
     Input,
     NativeSelect,
     Stack,
@@ -31,6 +32,7 @@ import {
     playGraphicInstance,
     publicRendererQuery,
     removeLayer,
+    reorderLayers,
     runGraphicCustomAction,
     runRendererCustomAction,
     stopGraphicInstance,
@@ -65,6 +67,21 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
         mutationFn: () => deleteRenderer(renderer.id),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "renderers"] }),
     });
+    const reorder = useMutation({
+        mutationFn: (ids: string[]) => reorderLayers(renderer.id, ids),
+        onSuccess: invalidate,
+    });
+
+    const moveLayer = (layerId: string, direction: "up" | "down") => {
+        const ids = renderer.layers.map((layer) => layer.id);
+        const from = ids.indexOf(layerId);
+        const moved = ids[from];
+        const to = from + (direction === "up" ? -1 : 1);
+        if (moved === undefined || to < 0 || to >= ids.length) {
+            return;
+        }
+        reorder.mutate(ids.toSpliced(from, 1).toSpliced(to, 0, moved));
+    };
 
     const handleClear = () => {
         if (confirm("Clear all loaded graphics on this renderer?")) {
@@ -94,7 +111,7 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                             <Collapsible.Trigger asChild>
                                 <Button size="sm" variant="ghost">
                                     Layers
-                                    <Chevron open={expanded} />
+                                    <Chevron direction={expanded ? "down" : "right"} />
                                 </Button>
                             </Collapsible.Trigger>
                             <Button
@@ -138,7 +155,7 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                                     No layers yet.
                                 </Text>
                             ) : (
-                                renderer.layers.map((layer) => (
+                                renderer.layers.map((layer, row) => (
                                     <LayerSection
                                         key={layer.id}
                                         rendererId={renderer.id}
@@ -147,9 +164,14 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                                             (target) => target.renderTarget.layer === layer.id,
                                         )}
                                         onChanged={invalidate}
+                                        isFirst={row === 0}
+                                        isLast={row === renderer.layers.length - 1}
+                                        moving={reorder.isPending}
+                                        onMove={(direction) => moveLayer(layer.id, direction)}
                                     />
                                 ))
                             )}
+                            <FieldError error={reorder.error} />
                         </Stack>
                     </Collapsible.Content>
                 </Card.Body>
@@ -215,11 +237,19 @@ function LayerSection({
     layer,
     target,
     onChanged,
+    isFirst,
+    isLast,
+    moving,
+    onMove,
 }: {
     rendererId: string;
     layer: AdminRendererLayer;
     target: PublicRenderTargetInfo | undefined;
     onChanged: () => void;
+    isFirst: boolean;
+    isLast: boolean;
+    moving: boolean;
+    onMove: (direction: "up" | "down") => void;
 }) {
     const [showLoad, setShowLoad] = useState(false);
     const instances = target?.graphicInstances ?? [];
@@ -250,6 +280,22 @@ function LayerSection({
                             )}
                         </HStack>
                         <HStack gap="2" flexShrink="0">
+                            {!isFirst && (
+                                <MoveLayerButton
+                                    direction="up"
+                                    layerName={layer.name}
+                                    disabled={moving}
+                                    onClick={() => onMove("up")}
+                                />
+                            )}
+                            {!isLast && (
+                                <MoveLayerButton
+                                    direction="down"
+                                    layerName={layer.name}
+                                    disabled={moving}
+                                    onClick={() => onMove("down")}
+                                />
+                            )}
                             <Button size="xs" onClick={() => setShowLoad(true)}>
                                 Load Graphic
                             </Button>
@@ -359,7 +405,7 @@ function GraphicInstanceRow({
                 <Flex align="center" gap="2">
                     <Collapsible.Trigger asChild>
                         <Button size="xs" variant="ghost" aria-label="Graphic controls">
-                            <Chevron open={expanded} />
+                            <Chevron direction={expanded ? "down" : "right"} />
                         </Button>
                     </Collapsible.Trigger>
                     <Text fontSize="sm" fontWeight="medium" flex="1" minW="0" truncate>
@@ -459,6 +505,31 @@ function GraphicInstanceRow({
     );
 }
 
+function MoveLayerButton({
+    direction,
+    layerName,
+    disabled,
+    onClick,
+}: {
+    direction: "up" | "down";
+    layerName: string;
+    disabled: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <IconButton
+            size="xs"
+            variant="outline"
+            aria-label={`Move layer "${layerName}" ${direction}`}
+            title={`Move layer ${direction}`}
+            disabled={disabled}
+            onClick={onClick}
+        >
+            <Chevron direction={direction} />
+        </IconButton>
+    );
+}
+
 function SectionLabel({ children }: { children: string }) {
     return (
         <Text fontSize="xs" fontWeight="medium" color="fg.muted" mb="1">
@@ -477,7 +548,9 @@ function IdBadge({ children }: { children: string }) {
 
 const SvgIcon = chakra("svg");
 
-function Chevron({ open }: { open: boolean }) {
+const CHEVRON_ROTATION = { right: undefined, down: "rotate(90deg)", up: "rotate(-90deg)" } as const;
+
+function Chevron({ direction = "right" }: { direction?: "right" | "up" | "down" }) {
     return (
         <SvgIcon
             boxSize="4"
@@ -489,7 +562,7 @@ function Chevron({ open }: { open: boolean }) {
             strokeLinejoin="round"
             aria-hidden="true"
             transition="transform 0.2s"
-            transform={open ? "rotate(90deg)" : undefined}
+            transform={CHEVRON_ROTATION[direction]}
         >
             <path d="m9 6 6 6-6 6" />
         </SvgIcon>

@@ -31,6 +31,7 @@ import type { LogStore } from "./logs.ts";
 import {
     CreateRendererSchema,
     LayerSchema,
+    ReorderLayersSchema,
     UpdateLayerSchema,
     UpdateRendererSchema,
     type RendererService,
@@ -250,6 +251,18 @@ export function createAdminApi(deps: AdminApiDeps) {
                 }
                 emitEvent({ type: "renderers.changed", rendererId: renderer.id });
                 return c.json({ renderer: rendererSummary(renderer) }, 201);
+            } catch (error) {
+                return invalidRequestResponse(error);
+            }
+        })
+        .put("/renderers/:rendererId/layers", sValidator("json", ReorderLayersSchema), async (c) => {
+            try {
+                const renderer = await renderers.reorderLayers(c.req.param("rendererId"), c.req.valid("json").ids);
+                if (!renderer) {
+                    return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
+                }
+                emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+                return c.json({ renderer: rendererSummary(renderer) });
             } catch (error) {
                 return invalidRequestResponse(error);
             }

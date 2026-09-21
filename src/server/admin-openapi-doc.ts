@@ -48,6 +48,22 @@ export const adminOpenApiDocument = {
         },
         "/renderers/{rendererId}/layers": {
             post: { summary: "Add a layer to a renderer", responses: { 201: { description: "Created" } } },
+            put: {
+                summary: "Reorder a renderer's layers (array position defines layer order)",
+                requestBody: {
+                    required: true,
+                    content: {
+                        "application/json": {
+                            schema: {
+                                type: "object",
+                                required: ["ids"],
+                                properties: { ids: { type: "array", items: { type: "string" } } },
+                            },
+                        },
+                    },
+                },
+                responses: { 200: { description: "OK" }, 400: { description: "Invalid layer order" } },
+            },
         },
         "/renderers/{rendererId}/layers/{layerId}": {
             patch: { summary: "Rename a layer", responses: { 200: { description: "OK" } } },

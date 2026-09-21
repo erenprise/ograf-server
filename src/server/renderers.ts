@@ -83,6 +83,8 @@ export const LayerSchema = v.object({ id: IdSchema, name: NameSchema });
 
 export const UpdateLayerSchema = v.omit(LayerSchema, ["id"]);
 
+export const ReorderLayersSchema = v.object({ ids: v.array(IdSchema) });
+
 export type CreateRendererInput = v.InferOutput<typeof CreateRendererSchema>;
 type UpdateRendererInput = v.InferOutput<typeof UpdateRendererSchema>;
 type LayerInput = v.InferOutput<typeof LayerSchema>;
@@ -96,6 +98,7 @@ export type RendererService = {
     deleteRenderer: (id: string) => Promise<boolean>;
     addLayer: (rendererId: string, layer: LayerInput) => Promise<RendererConfig | undefined>;
     updateLayer: (rendererId: string, layerId: string, patch: UpdateLayerInput) => Promise<RendererConfig | undefined>;
+    reorderLayers: (rendererId: string, ids: string[]) => Promise<RendererConfig | undefined>;
     removeLayer: (rendererId: string, layerId: string) => Promise<RendererConfig | undefined>;
     getPublicRendererInfo: (id: string) => PublicRendererInfo | undefined;
     getRenderTargetInfo: (id: string, renderTarget: JsonObject) => RenderTargetInfo | undefined;
@@ -279,6 +282,31 @@ export function createRendererService(
         });
     };
 
+    const reorderLayers = async (rendererId: string, ids: string[]) => {
+        const updated = await mutateRenderer(rendererId, (renderer) => {
+            const byId = new Map(renderer.layers.map((layer) => [layer.id, layer]));
+            const reordered = ids.flatMap((id) => {
+                const layer = byId.get(id);
+                byId.delete(id);
+                return layer ? [layer] : [];
+            });
+            if (reordered.length !== ids.length || byId.size > 0) {
+                throw new InvalidRequestError("Layer order must list every layer exactly once");
+            }
+            renderer.layers = reordered;
+        });
+        if (!updated) {
+            return undefined;
+        }
+        logs.add({
+            level: "info",
+            category: "system",
+            message: `Reordered layers for renderer "${rendererId}"`,
+            rendererId: rendererId,
+        });
+        return updated;
+    };
+
     const removeLayer = async (rendererId: string, layerId: string) => {
         const config = getConfig(rendererId);
         if (!config?.layers.some((layer) => layer.id === layerId)) {
@@ -315,6 +343,7 @@ export function createRendererService(
         deleteRenderer: deleteRenderer,
         addLayer: addLayer,
         updateLayer: updateLayer,
+        reorderLayers: reorderLayers,
         removeLayer: removeLayer,
         getPublicRendererInfo: getPublicRendererInfo,
         getRenderTargetInfo: getRenderTargetInfo,

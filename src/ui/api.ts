@@ -176,6 +176,11 @@ export const deleteRenderer = (id: string) =>
 export const addLayer = (rendererId: string, layer: LayerConfig) =>
     readJsonResponse(admin.renderers[":rendererId"].layers.$post({ param: { rendererId: rendererId }, json: layer }));
 
+export const reorderLayers = (rendererId: string, ids: string[]) =>
+    readJsonResponse(
+        admin.renderers[":rendererId"].layers.$put({ param: { rendererId: rendererId }, json: { ids: ids } }),
+    );
+
 export const removeLayer = (rendererId: string, layerId: string) =>
     readJsonResponse(
         admin.renderers[":rendererId"].layers[":layerId"].$delete({
