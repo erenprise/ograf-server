@@ -232,7 +232,7 @@ export function createApp(deps: AppDeps): Hono {
         if (!filePath) {
             return c.notFound();
         }
-        return serveStatic({ root: "/", path: filePath })(c, async () => {});
+        return serveStatic({ path: filePath })(c, async () => {});
     });
 
     app.on(["GET", "HEAD"], "/assets/*", (c) => serveAppAsset(c, c.req.path.slice(1)));
