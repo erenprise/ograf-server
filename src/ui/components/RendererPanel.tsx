@@ -4,7 +4,6 @@ import {
     Button,
     Card,
     chakra,
-    Code,
     Collapsible,
     Field,
     Flex,
@@ -49,11 +48,7 @@ type CommandFn = (...args: never[]) => Promise<unknown>;
 
 export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) {
     const queryClient = useQueryClient();
-    const [expanded, setExpanded] = useState(false);
-    const { data: detail, error: detailError } = useQuery({
-        ...publicRendererQuery(renderer.id),
-        enabled: expanded,
-    });
+    const { data: detail, error: detailError } = useQuery(publicRendererQuery(renderer.id));
 
     const invalidate = () => {
         void queryClient.invalidateQueries({ queryKey: ["admin", "renderers"] });
@@ -95,88 +90,71 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
     };
 
     return (
-        <Collapsible.Root asChild open={expanded} onOpenChange={(details) => setExpanded(details.open)}>
-            <Card.Root>
-                <Card.Body gap="4">
-                    <Flex justify="space-between" align="center" gap="3" wrap="wrap">
-                        <HStack gap="2" wrap="wrap">
-                            <StatusBadge status={renderer.status} />
-                            <Heading size="sm">{renderer.name}</Heading>
-                            <IdBadge>{renderer.id}</IdBadge>
-                            <Text color="fg.muted" fontSize="sm">
-                                {renderer.resolution.width}×{renderer.resolution.height} · {renderer.frameRate} fps
-                            </Text>
-                        </HStack>
-                        <HStack gap="1" flexShrink="0">
-                            <Collapsible.Trigger asChild>
-                                <Button size="sm" variant="ghost">
-                                    Layers
-                                    <Chevron direction={expanded ? "down" : "right"} />
-                                </Button>
-                            </Collapsible.Trigger>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                loading={reload.isPending}
-                                onClick={() => reload.mutate()}
-                            >
-                                Reload
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                colorPalette="yellow"
-                                loading={clear.isPending}
-                                onClick={handleClear}
-                            >
-                                Clear
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                colorPalette="red"
-                                loading={remove.isPending}
-                                onClick={handleDelete}
-                            >
-                                Delete
-                            </Button>
-                        </HStack>
-                    </Flex>
+        <Card.Root>
+            <Card.Body gap="4">
+                <Flex justify="space-between" align="center" gap="3" wrap="wrap">
+                    <HStack gap="2" wrap="wrap">
+                        <StatusBadge status={renderer.status} />
+                        <Heading size="sm">{renderer.name}</Heading>
+                        <IdBadge>{renderer.id}</IdBadge>
+                        <Text color="fg.muted" fontSize="sm">
+                            {renderer.resolution.width}×{renderer.resolution.height} · {renderer.frameRate} fps
+                        </Text>
+                    </HStack>
+                    <HStack gap="2" flexShrink="0">
+                        <Button size="sm" variant="outline" loading={reload.isPending} onClick={() => reload.mutate()}>
+                            Reload
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            colorPalette="yellow"
+                            loading={clear.isPending}
+                            onClick={handleClear}
+                        >
+                            Clear
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            colorPalette="red"
+                            loading={remove.isPending}
+                            onClick={handleDelete}
+                        >
+                            Delete
+                        </Button>
+                    </HStack>
+                </Flex>
 
-                    <FieldError error={reload.error ?? clear.error ?? remove.error} />
+                <FieldError error={reload.error ?? clear.error ?? remove.error} />
+                <FieldError error={detailError} />
+                <RendererUrls rendererId={renderer.id} />
 
-                    <Collapsible.Content>
-                        <Stack gap="4">
-                            <FieldError error={detailError} />
-                            <RendererUrls rendererId={renderer.id} />
-                            <AddLayerRow rendererId={renderer.id} onChanged={invalidate} />
-                            {!renderer.layers.length ? (
-                                <Text fontSize="sm" color="fg.subtle">
-                                    No layers yet.
-                                </Text>
-                            ) : (
-                                renderer.layers.map((layer, row) => (
-                                    <LayerSection
-                                        key={layer.id}
-                                        rendererId={renderer.id}
-                                        layer={layer}
-                                        target={detail?.renderTargets.find(
-                                            (target) => target.renderTarget.layer === layer.id,
-                                        )}
-                                        onChanged={invalidate}
-                                        isFirst={row === 0}
-                                        isLast={row === renderer.layers.length - 1}
-                                        moving={reorder.isPending}
-                                        onMove={(direction) => moveLayer(layer.id, direction)}
-                                    />
-                                ))
-                            )}
-                            <FieldError error={reorder.error} />
-                        </Stack>
-                    </Collapsible.Content>
-                </Card.Body>
-            </Card.Root>
-        </Collapsible.Root>
+                <Stack gap="4">
+                    {!renderer.layers.length ? (
+                        <Text fontSize="sm" color="fg.subtle">
+                            No layers yet.
+                        </Text>
+                    ) : (
+                        renderer.layers.map((layer, row) => (
+                            <LayerSection
+                                key={layer.id}
+                                rendererId={renderer.id}
+                                layer={layer}
+                                target={detail?.renderTargets.find((target) => target.renderTarget.layer === layer.id)}
+                                onChanged={invalidate}
+                                isFirst={row === 0}
+                                isLast={row === renderer.layers.length - 1}
+                                moving={reorder.isPending}
+                                onMove={(direction) => moveLayer(layer.id, direction)}
+                            />
+                        ))
+                    )}
+                    <FieldError error={reorder.error} />
+                    <AddLayerRow rendererId={renderer.id} onChanged={invalidate} />
+                </Stack>
+            </Card.Body>
+        </Card.Root>
     );
 }
 
@@ -199,26 +177,26 @@ function AddLayerRow({ rendererId, onChanged }: { rendererId: string; onChanged:
                 add.mutate();
             }}
         >
-            <Flex gap="3" align="flex-end" wrap="wrap">
+            <Flex gap="3" wrap="wrap">
                 <Field.Root flex="1" minW="2xs">
-                    <Field.Label>Layer name</Field.Label>
                     <Input
                         size="sm"
                         required
                         maxLength={256}
-                        placeholder="Lower Third"
+                        aria-label="Layer Name"
+                        placeholder="Layer Name"
                         value={layer.name}
                         onChange={(event) => layer.setName(event.target.value)}
                     />
                 </Field.Root>
                 <Field.Root flex="1" minW="2xs">
-                    <Field.Label>Layer ID</Field.Label>
                     <Input
                         size="sm"
                         required
                         maxLength={128}
                         pattern="[A-Za-z0-9][A-Za-z0-9_-]*"
-                        placeholder="lower-third"
+                        aria-label="Layer ID"
+                        placeholder="layer-id"
                         value={layer.id}
                         onChange={(event) => layer.setId(event.target.value)}
                     />
@@ -367,10 +345,9 @@ function GraphicInstanceRow({
 }) {
     const { graphicInstanceId } = instance;
     const [expanded, setExpanded] = useState(false);
-    const { data: graphics } = useQuery(adminGraphicsQuery);
+    const { data: graphics } = useQuery({ ...adminGraphicsQuery, enabled: expanded });
     const { data: manifest, error: manifestError } = useQuery({
         ...adminGraphicDetailQuery(instance.graphic.id),
-        enabled: expanded,
     });
     const [data, setData] = useState<Record<string, unknown>>({});
     const [customActionId, setCustomActionId] = useState("");
@@ -402,42 +379,50 @@ function GraphicInstanceRow({
     return (
         <Collapsible.Root asChild open={expanded} onOpenChange={(details) => setExpanded(details.open)}>
             <Box borderWidth="1px" borderColor="border.muted" borderRadius="md" px="2" py="1.5">
-                <Flex align="center" gap="2">
+                <Flex align="center" gap="2" wrap="wrap">
                     <Collapsible.Trigger asChild>
                         <Button size="xs" variant="ghost" aria-label="Graphic controls">
                             <Chevron direction={expanded ? "down" : "right"} />
                         </Button>
                     </Collapsible.Trigger>
-                    <Text fontSize="sm" fontWeight="medium" flex="1" minW="0" truncate>
+                    <Text fontSize="sm" fontWeight="medium" flex="1" minW="8rem" truncate>
                         {instance.graphic.name}
                     </Text>
-                    {version && (
-                        <Text fontSize="xs" color="fg.muted" fontFamily="mono">
-                            v{version}
-                        </Text>
-                    )}
+                    <HStack gap="1" flexShrink="0" ms="auto">
+                        {hasSteps && (
+                            <Button size="xs" variant="outline" onClick={() => play.mutate(-1)}>
+                                Previous
+                            </Button>
+                        )}
+                        <Button size="xs" variant="outline" loading={play.isPending} onClick={() => play.mutate(1)}>
+                            {hasSteps ? "Next" : "Play"}
+                        </Button>
+                        <Button size="xs" variant="outline" loading={stop.isPending} onClick={() => stop.mutate()}>
+                            Stop
+                        </Button>
+                        <Button
+                            size="xs"
+                            variant="outline"
+                            colorPalette="red"
+                            loading={clearOne.isPending}
+                            onClick={() => clearOne.mutate()}
+                        >
+                            Clear
+                        </Button>
+                    </HStack>
                 </Flex>
 
                 <Collapsible.Content>
                     <Stack gap="3" pt="3">
-                        <HStack gap="2" wrap="wrap">
-                            <Code fontSize="xs" color="fg.muted">
+                        <HStack gap="2">
+                            <Text fontSize="xs" color="fg.muted" fontFamily="mono">
                                 {graphicInstanceId}
-                            </Code>
-                            {hasSteps && (
-                                <Button size="xs" variant="outline" onClick={() => play.mutate(-1)}>
-                                    Previous
-                                </Button>
+                            </Text>
+                            {version && (
+                                <Text fontSize="xs" color="fg.muted" fontFamily="mono">
+                                    v{version}
+                                </Text>
                             )}
-                            <Button size="xs" variant="outline" onClick={() => play.mutate(1)}>
-                                {hasSteps ? "Next" : "Play"}
-                            </Button>
-                            <Button size="xs" variant="outline" onClick={() => stop.mutate()}>
-                                Stop
-                            </Button>
-                            <Button size="xs" variant="outline" colorPalette="red" onClick={() => clearOne.mutate()}>
-                                Clear
-                            </Button>
                         </HStack>
 
                         <Box>

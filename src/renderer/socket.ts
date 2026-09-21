@@ -4,15 +4,33 @@ import {
     type RendererCommandExecution,
     type RendererCommandType,
     type RendererMessage,
+    type RendererRuntimeConfig,
 } from "../shared.ts";
 
 type CommandHandler = (command: RendererCommandType, payload: unknown) => Promise<RendererCommandExecution>;
 
 const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000, 5000];
 
+function isRuntimeConfig(value: unknown): value is RendererRuntimeConfig {
+    return (
+        isRecord(value) &&
+        typeof value.id === "string" &&
+        isRecord(value.resolution) &&
+        typeof value.resolution.width === "number" &&
+        typeof value.resolution.height === "number" &&
+        typeof value.frameRate === "number" &&
+        typeof value.accessToPublicInternet === "boolean" &&
+        Array.isArray(value.layers) &&
+        value.layers.every((layer) => isRecord(layer) && typeof layer.id === "string" && typeof layer.name === "string")
+    );
+}
+
 function isRendererMessage(value: unknown): value is RendererMessage {
     if (!isRecord(value) || typeof value.type !== "string") {
         return false;
+    }
+    if (value.type === "config") {
+        return isRuntimeConfig(value.config);
     }
     if (value.type === "ping" || value.type === "pong") {
         return typeof value.timestamp === "number";
@@ -49,6 +67,7 @@ export function connectRendererSocket(
     rendererId: string,
     getSnapshot: () => InstanceSnapshot[],
     onCommand: CommandHandler,
+    onConfig: (config: RendererRuntimeConfig) => Promise<void>,
 ) {
     let socket: WebSocket | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +130,10 @@ export function connectRendererSocket(
 
         if (message.type === "ping") {
             sendMessage({ type: "pong", timestamp: message.timestamp }, source);
+            return;
+        }
+        if (message.type === "config") {
+            void onConfig(message.config);
             return;
         }
         if (message.type !== "command") {

@@ -10,7 +10,7 @@ import {
     type RendererCommandExecution,
     type RendererCommandMap,
     type RendererCommandType,
-    type RendererConfig,
+    type RendererRuntimeConfig,
 } from "../shared.ts";
 
 class GraphicError extends Error {
@@ -45,8 +45,6 @@ type PendingLoad = {
     renderTarget: JsonObject;
     element?: RealtimeGraphic;
 };
-
-export type RendererRuntimeConfig = RenderCharacteristics & Pick<RendererConfig, "id" | "layers">;
 
 function tagNameForGraphic(graphicId: string, graphicRevision: string): string {
     const sanitized = graphicId
@@ -197,6 +195,47 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
         resolution: config.resolution,
         frameRate: config.frameRate,
         accessToPublicInternet: config.accessToPublicInternet,
+    };
+
+    const applyConfig = async (next: RendererRuntimeConfig): Promise<void> => {
+        renderCharacteristics.resolution = next.resolution;
+        renderCharacteristics.frameRate = next.frameRate;
+        renderCharacteristics.accessToPublicInternet = next.accessToPublicInternet;
+
+        const nextLayerIds = new Set(next.layers.map((layer) => layer.id));
+        const removedLayerIds = new Set<string>();
+        for (const [layerId, element] of layerElements) {
+            if (nextLayerIds.has(layerId)) {
+                continue;
+            }
+            removedLayerIds.add(layerId);
+            element.remove();
+            layerElements.delete(layerId);
+        }
+        const isRemovedLayer = (renderTarget: JsonObject) =>
+            typeof renderTarget.layer === "string" && removedLayerIds.has(renderTarget.layer);
+        for (const [id, pending] of pendingLoads) {
+            if (isRemovedLayer(pending.renderTarget)) {
+                pendingLoads.delete(id);
+            }
+        }
+        const removals = [...instances].filter(([, instance]) => isRemovedLayer(instance.renderTarget));
+        await Promise.allSettled(
+            removals.map(async ([id, instance]) => {
+                await disposeGraphic(instance.el);
+                instances.delete(id);
+            }),
+        );
+
+        for (const layer of next.layers) {
+            let element = layerElements.get(layer.id);
+            if (!element) {
+                element = document.createElement("div");
+                element.dataset.layer = layer.id;
+                layerElements.set(layer.id, element);
+            }
+            root.appendChild(element);
+        }
     };
 
     const getSnapshot = (): InstanceSnapshot[] =>
@@ -380,5 +419,6 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
     return {
         handleCommand: handleCommand,
         getSnapshot: getSnapshot,
+        applyConfig: applyConfig,
     };
 }

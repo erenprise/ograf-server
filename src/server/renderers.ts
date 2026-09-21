@@ -5,6 +5,7 @@ import {
     type RenderCharacteristics,
     type RendererConfig,
     type RendererStatus,
+    toRendererRuntimeConfig,
 } from "../shared.ts";
 import type { ServerApi } from "ograf";
 import * as v from "valibot";
@@ -113,6 +114,11 @@ export function createRendererService(
 ): RendererService {
     const listConfigs = () => state.getState().renderers;
     const getConfig = (id: string) => listConfigs().find((r) => r.id === id);
+    const pushConfig = (config: RendererConfig) => gateway.sendConfig(config.id, toRendererRuntimeConfig(config));
+    gateway.setConfigProvider((rendererId) => {
+        const config = getConfig(rendererId);
+        return config ? toRendererRuntimeConfig(config) : undefined;
+    });
 
     const graphicToListInfo = (graphicId: string): GraphicListInfo => {
         const record = graphics.getAny(graphicId);
@@ -232,6 +238,13 @@ export function createRendererService(
             return undefined;
         }
         logs.add({ level: "info", category: "system", message: `Updated renderer "${id}"`, rendererId: id });
+        if (
+            patch.resolution !== undefined ||
+            patch.frameRate !== undefined ||
+            patch.accessToPublicInternet !== undefined
+        ) {
+            pushConfig(updated);
+        }
         return updated;
     };
 
@@ -266,6 +279,7 @@ export function createRendererService(
             message: `Added layer "${layer.id}" to renderer "${rendererId}"`,
             rendererId: rendererId,
         });
+        pushConfig(updated);
         return updated;
     };
 
@@ -304,6 +318,7 @@ export function createRendererService(
             message: `Reordered layers for renderer "${rendererId}"`,
             rendererId: rendererId,
         });
+        pushConfig(updated);
         return updated;
     };
 
@@ -332,6 +347,7 @@ export function createRendererService(
             message: `Removed layer "${layerId}" from renderer "${rendererId}"`,
             rendererId: rendererId,
         });
+        pushConfig(updated);
         return updated;
     };
 

@@ -64,6 +64,18 @@ export type RendererConfig = {
     updatedAt: string;
 };
 
+export type RendererRuntimeConfig = RenderCharacteristics & Pick<RendererConfig, "id" | "layers">;
+
+export function toRendererRuntimeConfig(config: RendererConfig): RendererRuntimeConfig {
+    return {
+        id: config.id,
+        resolution: config.resolution,
+        frameRate: config.frameRate,
+        accessToPublicInternet: config.accessToPublicInternet,
+        layers: config.layers,
+    };
+}
+
 export type InstanceSnapshot = {
     graphicInstanceId: string;
     graphicId: string;
@@ -187,12 +199,18 @@ type RendererPongMessage = {
     timestamp: number;
 };
 
+type RendererConfigMessage = {
+    type: "config";
+    config: RendererRuntimeConfig;
+};
+
 export type RendererMessage =
     | RendererCommandMessage
     | RendererResultMessage
     | RendererHelloMessage
     | RendererPingMessage
-    | RendererPongMessage;
+    | RendererPongMessage
+    | RendererConfigMessage;
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];

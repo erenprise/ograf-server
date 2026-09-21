@@ -12,6 +12,7 @@ import {
     type RendererCommandResult,
     type RendererCommandType,
     type RendererResultMessage,
+    type RendererRuntimeConfig,
     type RendererStatus,
 } from "../shared.ts";
 import { GraphicMethodError, RendererDisconnectedError, RendererOfflineError, RendererTimeoutError } from "./errors.ts";
@@ -103,6 +104,8 @@ export type RendererGateway = {
     getLiveTarget: (rendererId: string, renderTarget: JsonObject) => LiveTargetState | undefined;
     isGraphicInUse: (graphicId: string) => boolean;
     sendCommand: SendCommand;
+    sendConfig: (rendererId: string, config: RendererRuntimeConfig) => void;
+    setConfigProvider: (fn: (rendererId: string) => RendererRuntimeConfig | undefined) => void;
     onChange: (fn: (rendererId: string) => void) => () => void;
     remove: (rendererId: string) => void;
     close: () => Promise<void>;
@@ -113,6 +116,21 @@ export function createRendererGateway(logs: LogStore): RendererGateway {
     const connections = new Map<string, Connection>();
     const liveStates = new Map<string, Map<string, LiveTargetState>>();
     const changeListeners = new Set<(rendererId: string) => void>();
+    let configProvider: ((rendererId: string) => RendererRuntimeConfig | undefined) | undefined;
+
+    const isConnected = (rendererId: string) => connections.get(rendererId)?.ws.readyState === Ws.OPEN;
+
+    function sendConfig(rendererId: string, config: RendererRuntimeConfig): void {
+        const conn = connections.get(rendererId);
+        if (!conn || conn.ws.readyState !== Ws.OPEN) {
+            return;
+        }
+        try {
+            conn.ws.send(JSON.stringify({ type: "config", config: config }));
+        } catch {
+            return;
+        }
+    }
 
     const notify = (rendererId: string) => {
         for (const fn of changeListeners) {
@@ -171,6 +189,10 @@ export function createRendererGateway(logs: LogStore): RendererGateway {
         }
         if (message.type === "hello" && message.rendererId === rendererId && isSnapshotList(message.instances)) {
             applySnapshot(rendererId, message.instances);
+            const config = configProvider?.(rendererId);
+            if (config) {
+                sendConfig(rendererId, config);
+            }
             notify(rendererId);
         }
         if (message.type === "result") {
@@ -255,7 +277,7 @@ export function createRendererGateway(logs: LogStore): RendererGateway {
         payload: RendererCommandMap[T]["payload"],
     ): Promise<RendererCommandMap[T]["result"]> {
         const conn = connections.get(rendererId);
-        if (!conn) {
+        if (!conn || conn.ws.readyState !== Ws.OPEN) {
             return Promise.reject(new RendererOfflineError(rendererId));
         }
 
@@ -295,10 +317,10 @@ export function createRendererGateway(logs: LogStore): RendererGateway {
             });
         },
 
-        isConnected: (rendererId) => connections.has(rendererId),
+        isConnected: isConnected,
 
         getStatus: (rendererId) =>
-            connections.has(rendererId)
+            isConnected(rendererId)
                 ? { status: "OK", message: "Renderer connected" }
                 : { status: "ERROR", message: "Renderer output is not connected" },
 
@@ -312,6 +334,12 @@ export function createRendererGateway(logs: LogStore): RendererGateway {
             ),
 
         sendCommand: sendCommand,
+
+        sendConfig: sendConfig,
+
+        setConfigProvider: (fn) => {
+            configProvider = fn;
+        },
 
         onChange: (fn) => {
             changeListeners.add(fn);

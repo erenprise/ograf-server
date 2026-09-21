@@ -8,7 +8,7 @@ import { parse as parseCookieHeader } from "hono/utils/cookie";
 import { getMimeType } from "hono/utils/mime";
 import { sValidator } from "@hono/standard-validator";
 import * as v from "valibot";
-import { MAX_CONTROL_MESSAGE_BYTES, type AdminEvent } from "../shared.ts";
+import { MAX_CONTROL_MESSAGE_BYTES, toRendererRuntimeConfig, type AdminEvent } from "../shared.ts";
 import { createAdminApi } from "./admin.ts";
 import { type AppAssets, OGRAF_OPENAPI_ASSET } from "./assets.ts";
 import { adminOpenApiDocument } from "./admin-openapi-doc.ts";
@@ -202,13 +202,7 @@ export function createApp(deps: AppDeps): Hono {
         }
 
         const html = await renderHtml("renderer", c.req.path);
-        const configScript = `<script>window.__OGRAF_RENDERER__=${safeJsonForScript({
-            id: config.id,
-            resolution: config.resolution,
-            frameRate: config.frameRate,
-            accessToPublicInternet: config.accessToPublicInternet,
-            layers: config.layers,
-        })}</script>`;
+        const configScript = `<script>window.__OGRAF_RENDERER__=${safeJsonForScript(toRendererRuntimeConfig(config))}</script>`;
         const finalHtml = html.includes("</head>")
             ? html.replace("</head>", `${configScript}</head>`)
             : `${configScript}${html}`;

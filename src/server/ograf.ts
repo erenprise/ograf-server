@@ -28,11 +28,10 @@ function transportErrorToProblem(error: unknown, instance: string) {
     if (error instanceof GraphicMethodError) {
         return { status: 550, body: problem(550, "Graphic method error", error.message, instance) };
     }
-    if (
-        error instanceof RendererOfflineError ||
-        error instanceof RendererTimeoutError ||
-        error instanceof RendererDisconnectedError
-    ) {
+    if (error instanceof RendererOfflineError || error instanceof RendererDisconnectedError) {
+        return { status: 503, body: problem(503, "Renderer Offline", error.message, instance) };
+    }
+    if (error instanceof RendererTimeoutError) {
         return { status: 500, body: problem(500, "Renderer error", error.message, instance) };
     }
     return {
@@ -68,6 +67,13 @@ function invalidBody(c: Context) {
 
 function notFound(c: Context, detail: string) {
     return c.json(problem(404, "Not Found", detail, c.req.path), 404);
+}
+
+function rendererOffline(c: Context, rendererId: string) {
+    return problemResponse(
+        problem(503, "Renderer Offline", `Renderer "${rendererId}" is not connected`, c.req.path),
+        503,
+    );
 }
 
 async function withTransport(c: Context, run: () => Promise<unknown>): Promise<Response> {
@@ -160,6 +166,9 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         if (!body) {
             return invalidBody(c);
         }
+        if (!gateway.isConnected(rendererId)) {
+            return rendererOffline(c, rendererId);
+        }
         return withTransport(c, async () => ({
             result: await gateway.sendCommand(rendererId, "rendererCustomAction", {
                 ...body,
@@ -180,6 +189,9 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         const filters = body.filters === undefined ? [] : body.filters;
         if (!Array.isArray(filters) || !filters.every(isGraphicFilter)) {
             return invalidBody(c);
+        }
+        if (!gateway.isConnected(rendererId)) {
+            return rendererOffline(c, rendererId);
         }
         return withTransport(c, () => gateway.sendCommand(rendererId, "clear", { filters: filters }));
     });
@@ -207,6 +219,10 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         const record = graphics.get(graphicId);
         if (!layerId || !record?.validation.valid) {
             return notFound(c, "No Graphic or RenderTarget found");
+        }
+
+        if (!gateway.isConnected(rendererId)) {
+            return rendererOffline(c, rendererId);
         }
 
         const graphicInstanceId = randomUUID();
@@ -252,6 +268,9 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         const { renderTarget, graphicInstanceId, params } = body;
         if (!isJsonObject(renderTarget) || typeof graphicInstanceId !== "string" || !isJsonObject(params)) {
             return invalidBody(c);
+        }
+        if (!gateway.isConnected(rendererId)) {
+            return rendererOffline(c, rendererId);
         }
         const targetInfo = renderers.getRenderTargetInfo(rendererId, renderTarget);
         if (!targetInfo?.graphicInstances.some((i) => i.graphicInstanceId === graphicInstanceId)) {

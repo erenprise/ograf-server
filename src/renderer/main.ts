@@ -1,4 +1,5 @@
-import { createGraphicsRuntime, type RendererRuntimeConfig } from "./graphics.ts";
+import type { RendererRuntimeConfig } from "../shared.ts";
+import { createGraphicsRuntime } from "./graphics.ts";
 import { connectRendererSocket } from "./socket.ts";
 
 declare global {
@@ -15,4 +16,4 @@ if (!config) {
 
 const runtime = createGraphicsRuntime(config);
 
-connectRendererSocket(config.id, runtime.getSnapshot, runtime.handleCommand);
+connectRendererSocket(config.id, runtime.getSnapshot, runtime.handleCommand, runtime.applyConfig);
