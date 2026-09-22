@@ -16,7 +16,28 @@ import { createStateStore } from "./state.ts";
 // Keep `process` global: a `node:process` import would shadow the build-time
 // `process.env.NODE_ENV` replacement and pull Vite into the production bundle.
 const isDev = process.env.NODE_ENV !== "production";
-const port = Number(process.env.PORT ?? 8080);
+
+function portFromArgs(argv: string[]): number | undefined {
+    for (let index = 0; index < argv.length; index += 1) {
+        const arg = argv[index];
+        if (arg === undefined) {
+            continue;
+        }
+        if (arg === "--port") {
+            const value = argv[index + 1];
+            if (value === undefined) {
+                throw new Error("--port requires a value");
+            }
+            return Number(value);
+        }
+        if (arg.startsWith("--port=")) {
+            return Number(arg.slice("--port=".length));
+        }
+    }
+    return undefined;
+}
+
+const port = portFromArgs(process.argv) ?? Number(process.env.PORT ?? 8080);
 const root = process.cwd();
 const dataDir = path.join(isSea() ? path.dirname(process.execPath) : root, "ograf-server");
 const uploadTempDir = path.join(dataDir, "uploads");
@@ -32,10 +53,11 @@ const waitUnref = (ms: number) =>
     });
 
 if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-    throw new Error("PORT must be an integer from 0 to 65535");
+    throw new Error("Port must be an integer from 0 to 65535 (set with --port or the PORT environment variable)");
 }
 
 async function main() {
+    await mkdir(dataDir, { recursive: true });
     await rm(uploadTempDir, { recursive: true, force: true });
     await mkdir(uploadTempDir, { recursive: true });
     const state = await createStateStore(stateFile);

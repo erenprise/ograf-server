@@ -1,12 +1,6 @@
 # ograf-server
 
-Implementation of [EBU OGraf](https://ograf.ebu.io/) server for managing and rendering graphics.
-
-Works well with the [Erenprise](https://erenprise.com/) client which has Ograf and CasparCG support built-in.
-
-Download `ograf-server-v<version>-windows-x64.zip` from [releases](https://github.com/erenprise/ograf-server/releases) or build single **ograf-server.exe** file for easy running on Windows.
-
-Or download source, build and run server directly with **Node.js**.
+[EBU OGraf](https://ograf.ebu.io/) server for managing and rendering broadcast graphics. Works with the [Erenprise](https://erenprise.com/) client, which has OGraf and CasparCG support built in.
 
 ![Banner](https://i.imgur.com/tjmAZP9.png)
 
@@ -14,7 +8,7 @@ Or download source, build and run server directly with **Node.js**.
 
 ## Requirements
 
-- Node.js 26+
+- Node.js 26+ (official build from [nodejs.org](https://nodejs.org))
 - Yarn 4.18+
 
 ```sh
@@ -26,50 +20,38 @@ corepack enable
 
 ```sh
 yarn install
-yarn dev
+yarn dev                    # development on http://localhost:8080
+yarn build && yarn start    # production
 ```
 
-Open `http://localhost:8080` for the admin UI.
-
-Production:
+Set the port with `--port <n>` or `PORT` (default 8080). Standalone binaries accept the same argument:
 
 ```sh
-yarn build && yarn start
+yarn start --port 9000
 ```
 
-Set `PORT` to change the default port (8080).
+## Standalone binaries
 
-## Windows standalone executable
+Download the Windows or macOS zip from [releases](https://github.com/erenprise/ograf-server/releases), or build for the current platform with `yarn build:binary`:
 
-Requires Node.js 26+ (an official build from [nodejs.org](https://nodejs.org); shared-library builds such as Homebrew's have single-executable support disabled).
+| Platform    | Output                   |
+| ----------- | ------------------------ |
+| Windows x64 | `build/ograf-server.exe` |
+| macOS ARM64 | `build/ografServer`      |
 
-```sh
-yarn build:exe
-```
+The binary embeds Node.js, the web assets, and the OGraf API specification, so the target machine needs no Node.js or `node_modules/`. Build with an official Node build from [nodejs.org](https://nodejs.org); Homebrew and distro builds disable single-executable support. Cross-building is not supported.
 
-Output:
+Runtime data (graphics, uploads, state) lives in `ograf-server/` beside the executable, so place the binary in a writable directory:
 
 ```text
-build/ograf-server.exe
-```
-
-The executable bundles Node.js, the server, the admin/renderer web assets, and the OGraf API specification. The target Windows machine needs no Node.js installation and no `node_modules/`, `dist/` or `package.json` beside it.
-
-`yarn build` downloads the current official OGraf documentation into the ignored `.cache/ograf/` directory. Vite copies it into `dist/`, and the executable embeds it.
-
-Runtime data is stored beside the executable, not in the working directory:
-
-```text
-ograf-server.exe
+ograf-server.exe        # or ografServer
 ograf-server/
 ├── graphics/
 ├── uploads/
 └── state.json
 ```
 
-Place the executable in a directory the current user can write to.
-
-Building on macOS/Linux downloads and SHA-256 verifies the matching official Windows x64 Node.js runtime and caches it under `.cache/node/`.
+The macOS binary is ad-hoc signed, which Apple Silicon requires, but not notarized. If Gatekeeper blocks the first launch, allow it via **Right-click → Open** or `xattr -d com.apple.quarantine ografServer`.
 
 ## Checks
 
@@ -79,11 +61,7 @@ yarn check
 
 ## Authentication
 
-Auth requires an API-scoped token to enable. Tokens are created in Settings. Renderer tokens are restricted to output page access only.
-
-External clients authenticate with `Authorization: Bearer <token>`. The built-in admin UI signs in once with an API-scoped token via `POST /api/session`, which is exchanged for the HttpOnly session cookie (`ograf_admin_token`, `SameSite=Strict`, path `/api`). That session authenticates same-origin Admin API _and_ OGraf API requests from the admin UI, so renderer controls keep working when authentication is enabled; no bearer token is stored in the browser.
-
-The renderer bootstrap URL `/render/:id?token=...` sets an HttpOnly cookie then 303-redirects to the token-free URL. The query token is a credential only until the redirect consumes it.
+Off by default; enable it in Settings. Tokens are API-scoped or renderer-scoped (output page only). External clients send `Authorization: Bearer <token>`. The admin UI exchanges an API token for an HttpOnly session cookie, so no token is stored in the browser. `/render/:id?token=...` sets an HttpOnly cookie and 303-redirects to the token-free URL.
 
 ## Endpoints
 
@@ -95,11 +73,7 @@ The renderer bootstrap URL `/render/:id?token=...` sets an HttpOnly cookie then 
 
 ## Graphics
 
-Packages use `graphics/<package-id>/` with an `*.ograf.json` manifest. Uploads are streamed (max 200 MiB). Re-uploading a package creates a new revision; existing renderer ESM modules are not invalidated until reload. Soft-deleted graphics are hidden from new loads but remain controllable for 5 minutes until garbage-collected.
-
-## State
-
-Persistent state and upload staging use `ograf-server/` in the working directory, or beside the executable in a standalone build.
+Packages live in `ograf-server/graphics/<package-id>/` with an `*.ograf.json` manifest. Uploads stream up to 200 MiB; re-uploading creates a revision. Soft-deleted graphics stay controllable for 5 minutes before garbage collection.
 
 ## License
 

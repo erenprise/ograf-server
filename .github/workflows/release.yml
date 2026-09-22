@@ -9,8 +9,21 @@ permissions:
     contents: write
 
 jobs:
-    release:
-        runs-on: windows-latest
+    build:
+        name: Build ${{ matrix.name }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Windows x64
+                      os: windows-latest
+                      artifact: windows-x64
+
+                    - name: macOS ARM64
+                      os: macos-latest
+                      artifact: macos-arm64
+
+        runs-on: ${{ matrix.os }}
         timeout-minutes: 20
 
         steps:
@@ -21,12 +34,11 @@ jobs:
               uses: actions/setup-node@v7
               with:
                   node-version: "26"
-                  architecture: x64
 
             - name: Setup Yarn
-              shell: pwsh
+              shell: bash
               run: |
-                  npm uninstall --global yarn pnpm
+                  npm uninstall --global yarn pnpm || true
                   npm install --global corepack@latest
                   corepack enable
                   corepack install --global yarn@stable
@@ -36,37 +48,73 @@ jobs:
               run: yarn install --immutable
 
             - name: Validate version
+              shell: bash
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+
+                  if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+                      echo "Tag $GITHUB_REF_NAME does not match package.json v$VERSION"
+                      exit 1
+                  fi
+
+            - name: Build binary
+              run: yarn build:binary
+
+            - name: Package Windows
+              if: runner.os == 'Windows'
               shell: pwsh
               run: |
                   $version = (Get-Content package.json | ConvertFrom-Json).version
-                  $expectedTag = "v$version"
-
-                  if ($env:GITHUB_REF_NAME -ne $expectedTag) {
-                      throw "Tag '$env:GITHUB_REF_NAME' does not match package.json version '$expectedTag'"
-                  }
-
-            - name: Build executable
-              run: yarn build:exe
-
-            - name: Create release ZIP
-              shell: pwsh
-              run: |
-                  $version = (Get-Content package.json | ConvertFrom-Json).version
-                  $zip = "build/ograf-server-v$version-windows-x64.zip"
 
                   Compress-Archive `
                       -LiteralPath "build/ograf-server.exe" `
-                      -DestinationPath $zip `
+                      -DestinationPath "build/ograf-server-v$version-windows-x64.zip" `
                       -Force
 
-                  "RELEASE_ZIP=$zip" >> $env:GITHUB_ENV
+            - name: Package macOS
+              if: runner.os == 'macOS'
+              shell: bash
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+
+                  chmod +x build/ografServer
+
+                  zip -j \
+                      "build/ograf-server-v${VERSION}-macos-arm64.zip" \
+                      build/ografServer
+
+            - name: Upload release artifact
+              uses: actions/upload-artifact@v7
+              with:
+                  name: ${{ matrix.artifact }}
+                  path: build/ograf-server-v*.zip
+                  if-no-files-found: error
+
+    release:
+        name: Publish Release
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Download Windows
+              uses: actions/download-artifact@v8
+              with:
+                  name: windows-x64
+                  path: release
+
+            - name: Download macOS
+              uses: actions/download-artifact@v8
+              with:
+                  name: macos-arm64
+                  path: release
 
             - name: Create GitHub Release
-              shell: pwsh
               env:
                   GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
               run: |
-                  gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ZIP" `
-                      --verify-tag `
-                      --generate-notes `
-                      --title "OGraf Server $env:GITHUB_REF_NAME"
+                  gh release create "$GITHUB_REF_NAME" \
+                      release/*.zip \
+                      --verify-tag \
+                      --generate-notes \
+                      --title "OGraf Server $GITHUB_REF_NAME"
