@@ -1,6 +1,6 @@
 {
     "name": "ograf-server",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "EBU OGraf v1 Server API implementation for managing and rendering broadcast graphics",
     "homepage": "https://github.com/erenprise/ograf-server",
     "license": "GPL-3.0-or-later",
