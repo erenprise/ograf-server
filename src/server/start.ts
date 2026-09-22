@@ -2,16 +2,27 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { isSea } from "node:sea";
+import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import type { AdminEvent } from "../shared.ts";
-import { checkRendererAccess, createApp } from "./app.ts";
+import { createApp } from "./app.ts";
 import { createAppAssets } from "./assets.ts";
-import { createAuthStore } from "./auth.ts";
+import { checkApiAccess, checkRendererAccess, createAuthStore } from "./auth.ts";
+import { createServerEvents } from "./events.ts";
 import { createGraphicsStore } from "./graphics.ts";
+import { createLiveUpdateGateway } from "./live-updates.ts";
 import { createLogStore } from "./logs.ts";
 import { createRendererService } from "./renderers.ts";
 import { createRendererGateway } from "./sockets.ts";
 import { createStateStore } from "./state.ts";
+
+const RENDERER_WS = /^\/render\/([^/]+)\/ws$/;
+const LIVE_UPDATE_WS = /^\/api\/ograf\/v1\/renderers\/([^/]+)\/target\/graphicInstance\/updateAction$/;
+
+function rejectUpgrade(socket: Duplex, status: 401 | 404): void {
+    const text = status === 401 ? "Unauthorized" : "Not Found";
+    socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\n\r\n`);
+    socket.destroy();
+}
 
 // Keep `process` global: a `node:process` import would shadow the build-time
 // `process.env.NODE_ENV` replacement and pull Vite into the production bundle.
@@ -65,22 +76,10 @@ async function main() {
     const auth = createAuthStore(state);
     const gateway = createRendererGateway(logs);
 
-    const eventListeners = new Set<(event: AdminEvent) => void>();
-    const emitEvent = (event: AdminEvent) => {
-        for (const fn of eventListeners) {
-            try {
-                fn(event);
-            } catch (error) {
-                console.error("Admin event subscriber failed", error);
-            }
-        }
-    };
-    const subscribeEvents = (fn: (event: AdminEvent) => void) => {
-        eventListeners.add(fn);
-        return () => eventListeners.delete(fn);
-    };
+    const events = createServerEvents();
+    const unsubscribeLogs = logs.subscribe((entry) => events.emit({ type: "log", entry: entry }));
     const unsubscribeGateway = gateway.onChange((rendererId) =>
-        emitEvent({ type: "renderers.changed", rendererId: rendererId }),
+        events.emit({ type: "renderers.changed", rendererId: rendererId }),
     );
 
     const graphics = createGraphicsStore({
@@ -93,6 +92,7 @@ async function main() {
     await graphics.scan();
 
     const renderers = createRendererService(state, gateway, graphics, logs);
+    const liveUpdates = createLiveUpdateGateway(renderers, gateway, logs);
 
     let vite: import("vite").ViteDevServer | undefined;
     let honoListener: ReturnType<typeof getRequestListener>;
@@ -125,8 +125,7 @@ async function main() {
         auth: auth,
         logs: logs,
         uploadTempDir: uploadTempDir,
-        emitEvent: emitEvent,
-        subscribeEvents: subscribeEvents,
+        events: events,
         renderHtml: renderHtml,
         appAssets: appAssets,
     });
@@ -134,20 +133,45 @@ async function main() {
     honoListener = getRequestListener(app.fetch);
 
     server.on("upgrade", (req, socket, head) => {
-        const { pathname } = new URL(req.url ?? "/", "http://localhost");
-        const match = pathname.match(/^\/render\/([^/]+)\/ws$/);
-        const rendererId = match?.[1];
-        if (!rendererId) {
-            if (!vite) {
-                socket.destroy();
-            }
-            return;
-        }
-        if (!renderers.getConfig(rendererId) || !checkRendererAccess(req.headers, rendererId, auth)) {
+        let pathname: string;
+        try {
+            pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+        } catch {
             socket.destroy();
             return;
         }
-        gateway.handleUpgrade(req, socket, head, rendererId);
+
+        const rendererId = pathname.match(RENDERER_WS)?.[1];
+        if (rendererId) {
+            if (!renderers.getConfig(rendererId)) {
+                rejectUpgrade(socket, 404);
+                return;
+            }
+            if (!checkRendererAccess(req.headers, rendererId, auth)) {
+                rejectUpgrade(socket, 401);
+                return;
+            }
+            gateway.handleUpgrade(req, socket, head, rendererId);
+            return;
+        }
+
+        const liveRendererId = pathname.match(LIVE_UPDATE_WS)?.[1];
+        if (liveRendererId) {
+            if (!renderers.getConfig(liveRendererId)) {
+                rejectUpgrade(socket, 404);
+                return;
+            }
+            if (!checkApiAccess(req.headers, auth)) {
+                rejectUpgrade(socket, 401);
+                return;
+            }
+            liveUpdates.handleUpgrade(req, socket, head, liveRendererId);
+            return;
+        }
+
+        if (!vite) {
+            socket.destroy();
+        }
     });
 
     let activeSweep: Promise<void> | undefined;
@@ -206,8 +230,10 @@ async function main() {
             await activeSweep;
             await graphics.flush();
             await state.flush();
+            unsubscribeLogs();
             unsubscribeGateway();
-            eventListeners.clear();
+            events.clear();
+            await liveUpdates.close();
             await gateway.close();
             await vite?.close();
             await Promise.race([serverClosed, waitUnref(SHUTDOWN_DRAIN_MS)]);

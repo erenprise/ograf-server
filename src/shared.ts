@@ -189,16 +189,6 @@ type RendererHelloMessage = {
     instances: InstanceSnapshot[];
 };
 
-type RendererPingMessage = {
-    type: "ping";
-    timestamp: number;
-};
-
-type RendererPongMessage = {
-    type: "pong";
-    timestamp: number;
-};
-
 type RendererConfigMessage = {
     type: "config";
     config: RendererRuntimeConfig;
@@ -208,8 +198,6 @@ export type RendererMessage =
     | RendererCommandMessage
     | RendererResultMessage
     | RendererHelloMessage
-    | RendererPingMessage
-    | RendererPongMessage
     | RendererConfigMessage;
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
@@ -229,7 +217,7 @@ export type LogEntry = {
     graphicInstanceId?: string;
 };
 
-export type AdminEvent =
+export type ServerEvent =
     | { type: "renderers.changed"; rendererId?: string }
     | { type: "graphics.changed" }
     | { type: "log"; entry: LogEntry };

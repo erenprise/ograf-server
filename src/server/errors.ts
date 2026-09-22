@@ -44,3 +44,24 @@ export class RendererDisconnectedError extends Error {
 export class GraphicMethodError extends Error {}
 
 export class InvalidRequestError extends Error {}
+
+export class OgrafNotFoundError extends Error {}
+
+export function errorToProblem(error: unknown, instance?: string): { status: number; body: ProblemDetails } {
+    if (error instanceof OgrafNotFoundError) {
+        return { status: 404, body: problem(404, "Not Found", error.message, instance) };
+    }
+    if (error instanceof GraphicMethodError) {
+        return { status: 550, body: problem(550, "Graphic method error", error.message, instance) };
+    }
+    if (error instanceof RendererOfflineError || error instanceof RendererDisconnectedError) {
+        return { status: 503, body: problem(503, "Renderer Offline", error.message, instance) };
+    }
+    if (error instanceof RendererTimeoutError) {
+        return { status: 500, body: problem(500, "Renderer error", error.message, instance) };
+    }
+    return {
+        status: 500,
+        body: problem(500, "Internal Server Error", error instanceof Error ? error.message : String(error), instance),
+    };
+}

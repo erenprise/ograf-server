@@ -297,17 +297,25 @@ export function createRendererService(
     };
 
     const reorderLayers = async (rendererId: string, ids: string[]) => {
+        const config = getConfig(rendererId);
+        if (!config) {
+            return undefined;
+        }
+
+        const layerIds = new Set(config.layers.map((layer) => layer.id));
+        if (ids.length !== layerIds.size || new Set(ids).size !== ids.length || ids.some((id) => !layerIds.has(id))) {
+            throw new InvalidRequestError("Layer order must list every layer exactly once");
+        }
+        if (ids.every((id, index) => config.layers[index]?.id === id)) {
+            return config;
+        }
+
         const updated = await mutateRenderer(rendererId, (renderer) => {
             const byId = new Map(renderer.layers.map((layer) => [layer.id, layer]));
-            const reordered = ids.flatMap((id) => {
+            renderer.layers = ids.flatMap((id) => {
                 const layer = byId.get(id);
-                byId.delete(id);
                 return layer ? [layer] : [];
             });
-            if (reordered.length !== ids.length || byId.size > 0) {
-                throw new InvalidRequestError("Layer order must list every layer exactly once");
-            }
-            renderer.layers = reordered;
         });
         if (!updated) {
             return undefined;
@@ -329,10 +337,7 @@ export function createRendererService(
         }
 
         if (gateway.isConnected(rendererId)) {
-            const live = gateway.getLiveTarget(rendererId, { layer: layerId });
-            if (live?.instances.size) {
-                await gateway.sendCommand(rendererId, "clear", { filters: [{ renderTarget: { layer: layerId } }] });
-            }
+            await gateway.sendCommand(rendererId, "clear", { filters: [{ renderTarget: { layer: layerId } }] });
         }
 
         const updated = await mutateRenderer(rendererId, (renderer) => {

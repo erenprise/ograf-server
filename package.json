@@ -34,7 +34,7 @@
         "preview": "yarn build && yarn start",
         "release": "release-it",
         "start": "NODE_ENV=production node src/server/start.ts",
-        "test": "node --test scripts/assets.test.ts"
+        "test": "node --test"
     },
     "dependencies": {
         "@chakra-ui/react": "^3.37.0",

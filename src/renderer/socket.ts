@@ -32,9 +32,6 @@ function isRendererMessage(value: unknown): value is RendererMessage {
     if (value.type === "config") {
         return isRuntimeConfig(value.config);
     }
-    if (value.type === "ping" || value.type === "pong") {
-        return typeof value.timestamp === "number";
-    }
     if (value.type === "hello") {
         return typeof value.rendererId === "string" && Array.isArray(value.instances);
     }
@@ -128,10 +125,6 @@ export function connectRendererSocket(
             return;
         }
 
-        if (message.type === "ping") {
-            sendMessage({ type: "pong", timestamp: message.timestamp }, source);
-            return;
-        }
         if (message.type === "config") {
             void onConfig(message.config);
             return;

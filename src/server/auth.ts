@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { parse as parseCookieHeader } from "hono/utils/cookie";
 import { isTokenScope, type AuthTokenSummary, type TokenScope } from "../shared.ts";
 import { InvalidRequestError } from "./errors.ts";
 import type { PersistedAuthToken, StateStore } from "./state.ts";
@@ -99,4 +100,51 @@ export function createAuthStore(state: StateStore): AuthStore {
 
 export function scopeAllowsRenderer(scope: TokenScope, rendererId: string): boolean {
     return scope === "api" || scope === `renderer:${rendererId}`;
+}
+
+export const ADMIN_SESSION_COOKIE = "ograf_admin_token";
+
+export type AccessHeaders = {
+    authorization?: string | string[];
+    cookie?: string | string[];
+};
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function verifyToken(auth: AuthStore, token: string | undefined) {
+    if (!token) {
+        return undefined;
+    }
+    const result = auth.verify(token);
+    return result.ok ? result.record : undefined;
+}
+
+export function checkApiAccess(headers: AccessHeaders, auth: AuthStore): boolean {
+    if (!auth.isEnabled()) {
+        return true;
+    }
+
+    const bearer = firstHeader(headers.authorization);
+    const token = bearer?.startsWith("Bearer ") ? bearer.slice(7) : undefined;
+    const session = parseCookieHeader(firstHeader(headers.cookie) ?? "")[ADMIN_SESSION_COOKIE];
+
+    return verifyToken(auth, token)?.scope === "api" || verifyToken(auth, session)?.scope === "api";
+}
+
+export function checkRendererAccess(headers: AccessHeaders, rendererId: string, auth: AuthStore): boolean {
+    if (!auth.isEnabled()) {
+        return true;
+    }
+
+    const checkToken = (token: string | undefined): boolean => {
+        const scope = verifyToken(auth, token)?.scope;
+        return scope !== undefined && scopeAllowsRenderer(scope, rendererId);
+    };
+
+    const bearer = firstHeader(headers.authorization);
+    const token = bearer?.startsWith("Bearer ") ? bearer.slice(7) : undefined;
+    const cookieToken = parseCookieHeader(firstHeader(headers.cookie) ?? "")[`ograf_renderer_${rendererId}`];
+    return checkToken(token) || checkToken(cookieToken);
 }

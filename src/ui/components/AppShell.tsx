@@ -2,7 +2,7 @@ import { Box, Button, Card, Container, Flex, Heading, HStack, Input, Stack, Text
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { LOG_CATEGORIES, LOG_LEVELS, isRecord, type AdminEvent, type LogEntry } from "../../shared.ts";
+import { LOG_CATEGORIES, LOG_LEVELS, isRecord, type LogEntry, type ServerEvent } from "../../shared.ts";
 import { AdminApiError, loginAdmin, logoutAdmin, logsQuery, adminRenderersQuery, settingsQuery } from "../api.ts";
 import { FieldError } from "./FieldError.tsx";
 import { Loading } from "./Loading.tsx";
@@ -167,7 +167,7 @@ function AdminEvents() {
         source.addEventListener("message", (event: MessageEvent<string>) => {
             try {
                 const data: unknown = JSON.parse(event.data);
-                if (!isAdminEvent(data)) {
+                if (!isServerEvent(data)) {
                     return;
                 }
                 if (data.type === "log") {
@@ -192,7 +192,7 @@ function AdminEvents() {
     return null;
 }
 
-function isAdminEvent(value: unknown): value is AdminEvent {
+function isServerEvent(value: unknown): value is ServerEvent {
     if (!isRecord(value) || typeof value.type !== "string") {
         return false;
     }

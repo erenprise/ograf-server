@@ -13,19 +13,18 @@ import {
 } from "@mjackson/multipart-parser";
 import { sValidator } from "@hono/standard-validator";
 import { type Context, Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 import * as v from "valibot";
 import {
     isTokenScope,
     LOG_CATEGORIES,
     LOG_LEVELS,
     MAX_PACKAGE_ID_LENGTH,
-    type AdminEvent,
     type RendererConfig,
     type TokenScope,
 } from "../shared.ts";
 import type { AuthStore } from "./auth.ts";
 import { InvalidRequestError, problem, problemResponse } from "./errors.ts";
+import type { ServerEvents } from "./events.ts";
 import { getGraphicManifestInfo, type GraphicRecord, type GraphicsStore } from "./graphics.ts";
 import type { LogStore } from "./logs.ts";
 import {
@@ -37,6 +36,7 @@ import {
     type RendererService,
 } from "./renderers.ts";
 import type { RendererGateway } from "./sockets.ts";
+import { streamServerEvents } from "./sse.ts";
 import { NameSchema } from "./state.ts";
 
 type AdminApiDeps = {
@@ -46,8 +46,7 @@ type AdminApiDeps = {
     auth: AuthStore;
     logs: LogStore;
     uploadTempDir: string;
-    emitEvent: (event: AdminEvent) => void;
-    subscribeEvents: (fn: (event: AdminEvent) => void) => () => void;
+    events: ServerEvents;
 };
 
 export type AdminApi = ReturnType<typeof createAdminApi>;
@@ -65,7 +64,6 @@ const LogQuerySchema = v.object({
 
 const MAX_UPLOAD_BODY_BYTES = 210 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024;
-const MAX_SSE_QUEUE = 1000;
 
 class UploadInputError extends Error {}
 
@@ -189,7 +187,7 @@ async function receiveUpload(
 }
 
 export function createAdminApi(deps: AdminApiDeps) {
-    const { renderers, graphics, gateway, auth, logs, uploadTempDir, emitEvent, subscribeEvents } = deps;
+    const { renderers, graphics, gateway, auth, logs, uploadTempDir, events } = deps;
 
     const rendererSummary = (config: RendererConfig) => ({
         ...config,
@@ -221,7 +219,7 @@ export function createAdminApi(deps: AdminApiDeps) {
         .post("/renderers", sValidator("json", CreateRendererSchema), async (c) => {
             try {
                 const renderer = await renderers.createRenderer(c.req.valid("json"));
-                emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+                events.emit({ type: "renderers.changed", rendererId: renderer.id });
                 return c.json({ renderer: rendererSummary(renderer) }, 201);
             } catch (error) {
                 return invalidRequestResponse(error);
@@ -232,7 +230,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             if (!renderer) {
                 return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
             }
-            emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+            events.emit({ type: "renderers.changed", rendererId: renderer.id });
             return c.json({ renderer: rendererSummary(renderer) });
         })
         .delete("/renderers/:rendererId", async (c) => {
@@ -240,7 +238,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             if (!ok) {
                 return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
             }
-            emitEvent({ type: "renderers.changed" });
+            events.emit({ type: "renderers.changed" });
             return c.json({});
         })
         .post("/renderers/:rendererId/layers", sValidator("json", LayerSchema), async (c) => {
@@ -249,7 +247,7 @@ export function createAdminApi(deps: AdminApiDeps) {
                 if (!renderer) {
                     return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
                 }
-                emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+                events.emit({ type: "renderers.changed", rendererId: renderer.id });
                 return c.json({ renderer: rendererSummary(renderer) }, 201);
             } catch (error) {
                 return invalidRequestResponse(error);
@@ -261,7 +259,7 @@ export function createAdminApi(deps: AdminApiDeps) {
                 if (!renderer) {
                     return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
                 }
-                emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+                events.emit({ type: "renderers.changed", rendererId: renderer.id });
                 return c.json({ renderer: rendererSummary(renderer) });
             } catch (error) {
                 return invalidRequestResponse(error);
@@ -276,7 +274,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             if (!renderer) {
                 return c.json(problem(404, "Not Found", "No renderer or layer with that id"), 404);
             }
-            emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+            events.emit({ type: "renderers.changed", rendererId: renderer.id });
             return c.json({ renderer: rendererSummary(renderer) });
         })
         .delete("/renderers/:rendererId/layers/:layerId", async (c) => {
@@ -284,7 +282,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             if (!renderer) {
                 return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
             }
-            emitEvent({ type: "renderers.changed", rendererId: renderer.id });
+            events.emit({ type: "renderers.changed", rendererId: renderer.id });
             return c.json({ renderer: rendererSummary(renderer) });
         })
         .get("/graphics/packages", (c) => c.json({ graphics: graphics.listAll().map(graphicSummary) }))
@@ -312,7 +310,7 @@ export function createAdminApi(deps: AdminApiDeps) {
                 if (!result.ok) {
                     return problemResponse(problem(result.status, "Upload failed", result.error), result.status);
                 }
-                emitEvent({ type: "graphics.changed" });
+                events.emit({ type: "graphics.changed" });
                 return c.json({ graphicIds: result.graphicIds });
             } catch (error) {
                 return problemResponse(
@@ -325,7 +323,7 @@ export function createAdminApi(deps: AdminApiDeps) {
         })
         .post("/graphics/rescan", async (c) => {
             await graphics.scan();
-            emitEvent({ type: "graphics.changed" });
+            events.emit({ type: "graphics.changed" });
             return c.json({});
         })
         .get("/settings", (c) => c.json({ authEnabled: auth.isEnabled() }))
@@ -359,79 +357,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             return c.json({});
         })
         .get("/logs", sValidator("query", LogQuerySchema), (c) => c.json({ logs: logs.list(c.req.valid("query")) }))
-        .get("/events", (c) =>
-            streamSSE(c, async (stream) => {
-                const queue: Array<{ data: string; event: string }> = [];
-                let closed = false;
-                let wakeWriter: (() => void) | undefined;
-                let resolveStopped: (() => void) | undefined;
-                const stopped = new Promise<void>((resolve) => {
-                    resolveStopped = resolve;
-                });
-                const stop = () => {
-                    if (closed) {
-                        return;
-                    }
-                    closed = true;
-                    queue.length = 0;
-                    wakeWriter?.();
-                    resolveStopped?.();
-                };
-                stream.onAbort(stop);
-
-                const enqueue = (data: string, event = "message") => {
-                    if (closed) {
-                        return;
-                    }
-                    if (queue.length >= MAX_SSE_QUEUE) {
-                        stop();
-                        void stream.close();
-                        return;
-                    }
-                    queue.push({ data: data, event: event });
-                    wakeWriter?.();
-                };
-                const writer = (async function writeNext(): Promise<void> {
-                    if (!queue.length) {
-                        if (closed) {
-                            return;
-                        }
-                        await new Promise<void>((resolve) => {
-                            wakeWriter = resolve;
-                        });
-                        wakeWriter = undefined;
-                        return writeNext();
-                    }
-                    const message = queue.shift();
-                    if (!message) {
-                        return writeNext();
-                    }
-                    try {
-                        await stream.writeSSE(message);
-                    } catch {
-                        stop();
-                        return;
-                    }
-                    return writeNext();
-                })();
-                const unsubscribeLogs = logs.subscribe((entry) => {
-                    enqueue(JSON.stringify({ type: "log", entry: entry } satisfies AdminEvent));
-                });
-                const unsubscribeEvents = subscribeEvents((event) => {
-                    enqueue(JSON.stringify(event));
-                });
-                const ping = setInterval(() => enqueue("", "heartbeat"), 15_000);
-                try {
-                    await stopped;
-                } finally {
-                    clearInterval(ping);
-                    unsubscribeLogs();
-                    unsubscribeEvents();
-                    stop();
-                    await writer;
-                }
-            }),
-        );
+        .get("/events", (c) => streamServerEvents(c, events.subscribe));
 
     return app;
 }

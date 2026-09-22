@@ -4,41 +4,21 @@ import { relative, sep } from "node:path";
 import { type Context, Hono } from "hono";
 import { getMimeType } from "hono/utils/mime";
 import packageJson from "../../package.json" with { type: "json" };
-import { isGraphicFilter, isJsonObject, type AdminEvent, type JsonObject } from "../shared.ts";
-import {
-    GraphicMethodError,
-    problem,
-    problemResponse,
-    RendererDisconnectedError,
-    RendererOfflineError,
-    RendererTimeoutError,
-} from "./errors.ts";
+import { isGraphicFilter, isJsonObject, type JsonObject, type ServerEvent } from "../shared.ts";
+import { errorToProblem, problem, problemResponse } from "./errors.ts";
+import type { ServerEvents } from "./events.ts";
 import { getGraphicListInfo, type GraphicsStore } from "./graphics.ts";
+import { executeInstanceAction, parseInstanceActionInput, type InstanceActionCommand } from "./ograf-actions.ts";
 import { RENDERER_CUSTOM_ACTIONS, type RendererService } from "./renderers.ts";
 import type { RendererGateway } from "./sockets.ts";
+import { streamLatestState, wantsSse } from "./sse.ts";
 
 type OgrafApiDeps = {
     graphics: GraphicsStore;
     renderers: RendererService;
     gateway: RendererGateway;
-    emitEvent: (event: AdminEvent) => void;
+    events: ServerEvents;
 };
-
-function transportErrorToProblem(error: unknown, instance: string) {
-    if (error instanceof GraphicMethodError) {
-        return { status: 550, body: problem(550, "Graphic method error", error.message, instance) };
-    }
-    if (error instanceof RendererOfflineError || error instanceof RendererDisconnectedError) {
-        return { status: 503, body: problem(503, "Renderer Offline", error.message, instance) };
-    }
-    if (error instanceof RendererTimeoutError) {
-        return { status: 500, body: problem(500, "Renderer error", error.message, instance) };
-    }
-    return {
-        status: 500,
-        body: problem(500, "Internal Server Error", error instanceof Error ? error.message : String(error), instance),
-    };
-}
 
 function parseRenderTarget(raw: string | undefined): JsonObject | undefined {
     if (!raw) {
@@ -52,10 +32,9 @@ function parseRenderTarget(raw: string | undefined): JsonObject | undefined {
     }
 }
 
-async function readJsonObject(c: Context): Promise<JsonObject | undefined> {
+async function readJson(c: Context): Promise<unknown> {
     try {
-        const body: unknown = await c.req.json();
-        return isJsonObject(body) ? body : undefined;
+        return await c.req.json();
     } catch {
         return undefined;
     }
@@ -80,13 +59,28 @@ async function withTransport(c: Context, run: () => Promise<unknown>): Promise<R
     try {
         return c.json(await run());
     } catch (error) {
-        const { status, body } = transportErrorToProblem(error, c.req.path);
+        const { status, body } = errorToProblem(error, c.req.path);
         return problemResponse(body, status);
     }
 }
 
-export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: OgrafApiDeps): Hono {
+const isGraphicsEvent = (event: ServerEvent) => event.type === "graphics.changed";
+
+const matchesRenderer = (event: ServerEvent, rendererId: string) =>
+    event.type === "graphics.changed" ||
+    (event.type === "renderers.changed" && (!event.rendererId || event.rendererId === rendererId));
+
+export function createOgrafApi({ graphics, renderers, gateway, events }: OgrafApiDeps): Hono {
     const app = new Hono();
+    const actionDeps = { renderers: renderers, gateway: gateway };
+
+    const respond = <T>(
+        c: Context,
+        initial: T,
+        getSnapshot: () => T | undefined,
+        matches: (event: ServerEvent) => boolean,
+    ): Response =>
+        wantsSse(c) ? streamLatestState(c, initial, getSnapshot, events.subscribe, matches) : c.json(initial);
 
     app.get("/", (c) =>
         c.json({
@@ -96,14 +90,20 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         }),
     );
 
-    app.get("/graphics", (c) => c.json({ graphics: graphics.listPublic().map(getGraphicListInfo) }));
+    const getGraphics = () => ({ graphics: graphics.listPublic().map(getGraphicListInfo) });
+    app.get("/graphics", (c) => respond(c, getGraphics(), getGraphics, isGraphicsEvent));
 
     app.get("/graphics/:graphicId", (c) => {
-        const record = graphics.get(c.req.param("graphicId"));
-        if (!record) {
+        const graphicId = c.req.param("graphicId");
+        const getSnapshot = () => {
+            const record = graphics.get(graphicId);
+            return record ? { graphic: record.manifest, metadata: { createdAt: record.updatedAt } } : undefined;
+        };
+        const initial = getSnapshot();
+        if (!initial) {
             return notFound(c, "No Graphic found with the given ID");
         }
-        return c.json({ graphic: record.manifest, metadata: { createdAt: record.updatedAt } });
+        return respond(c, initial, getSnapshot, isGraphicsEvent);
     });
 
     app.delete("/graphics/:graphicId", async (c) => {
@@ -112,7 +112,7 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         if (result === "not-found") {
             return notFound(c, "No Graphic found with the given ID");
         }
-        emitEvent({ type: "graphics.changed" });
+        events.emit({ type: "graphics.changed" });
         return c.json({});
     });
 
@@ -134,26 +134,39 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         }
     });
 
-    app.get("/renderers", (c) => {
-        const list = renderers.listConfigs().map((r) => ({ id: r.id, name: r.name, description: r.description }));
-        return c.json({ renderers: list });
+    const getRenderers = () => ({
+        renderers: renderers.listConfigs().map((renderer) => ({
+            id: renderer.id,
+            name: renderer.name,
+            description: renderer.description,
+        })),
     });
+    app.get("/renderers", (c) =>
+        respond(c, getRenderers(), getRenderers, (event) => event.type === "renderers.changed"),
+    );
 
     app.get("/renderers/:rendererId", (c) => {
-        const info = renderers.getPublicRendererInfo(c.req.param("rendererId"));
-        if (!info) {
+        const rendererId = c.req.param("rendererId");
+        const getSnapshot = () => {
+            const info = renderers.getPublicRendererInfo(rendererId);
+            return info ? { renderer: info } : undefined;
+        };
+        const initial = getSnapshot();
+        if (!initial) {
             return notFound(c, "No Renderer found");
         }
-        return c.json({ renderer: info });
+        return respond(c, initial, getSnapshot, (event) => matchesRenderer(event, rendererId));
     });
 
     app.get("/renderers/:rendererId/target", (c) => {
+        const rendererId = c.req.param("rendererId");
         const target = parseRenderTarget(c.req.query("renderTarget"));
-        const info = target && renderers.getRenderTargetInfo(c.req.param("rendererId"), target);
-        if (!info) {
+        const getSnapshot = () => (target ? renderers.getRenderTargetInfo(rendererId, target) : undefined);
+        const initial = getSnapshot();
+        if (!initial) {
             return notFound(c, "No RenderTarget found");
         }
-        return c.json(info);
+        return respond(c, initial, getSnapshot, (event) => matchesRenderer(event, rendererId));
     });
 
     app.post("/renderers/:rendererId/customActions/:customActionId", async (c) => {
@@ -162,8 +175,8 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         if (!renderers.getConfig(rendererId) || !RENDERER_CUSTOM_ACTIONS.some((a) => a.id === customActionId)) {
             return notFound(c, "No Renderer found");
         }
-        const body = await readJsonObject(c);
-        if (!body) {
+        const body = await readJson(c);
+        if (!isJsonObject(body)) {
             return invalidBody(c);
         }
         if (!gateway.isConnected(rendererId)) {
@@ -182,8 +195,8 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         if (!renderers.getConfig(rendererId)) {
             return notFound(c, "No Renderer found");
         }
-        const body = await readJsonObject(c);
-        if (!body) {
+        const body = await readJson(c);
+        if (!isJsonObject(body)) {
             return invalidBody(c);
         }
         const filters = body.filters === undefined ? [] : body.filters;
@@ -203,8 +216,8 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
             return notFound(c, "No Graphic or RenderTarget found");
         }
 
-        const body = await readJsonObject(c);
-        if (!body) {
+        const body = await readJson(c);
+        if (!isJsonObject(body)) {
             return invalidBody(c);
         }
         const { renderTarget, graphicId, params } = body;
@@ -252,81 +265,18 @@ export function createOgrafApi({ graphics, renderers, gateway, emitEvent }: Ogra
         runInstanceAction(c, "graphicCustomAction"),
     );
 
-    async function runInstanceAction(
-        c: Context,
-        command: "updateAction" | "playAction" | "stopAction" | "graphicCustomAction",
-    ) {
+    async function runInstanceAction(c: Context, command: InstanceActionCommand) {
         const rendererId = c.req.param("rendererId");
-        if (!rendererId || !renderers.getConfig(rendererId)) {
+        if (!rendererId) {
             return notFound(c, "No GraphicInstance or RenderTarget found");
         }
-
-        const body = await readJsonObject(c);
-        if (!body) {
+        const input = parseInstanceActionInput(await readJson(c));
+        if (!input) {
             return invalidBody(c);
         }
-        const { renderTarget, graphicInstanceId, params } = body;
-        if (!isJsonObject(renderTarget) || typeof graphicInstanceId !== "string" || !isJsonObject(params)) {
-            return invalidBody(c);
-        }
-        if (!gateway.isConnected(rendererId)) {
-            return rendererOffline(c, rendererId);
-        }
-        const targetInfo = renderers.getRenderTargetInfo(rendererId, renderTarget);
-        if (!targetInfo?.graphicInstances.some((i) => i.graphicInstanceId === graphicInstanceId)) {
-            return notFound(c, "No GraphicInstance or RenderTarget found");
-        }
-
-        return withTransport(c, async () => {
-            const response = await sendInstanceCommand(
-                rendererId,
-                command,
-                graphicInstanceId,
-                params,
-                c.req.param("customActionId"),
-            );
-            return {
-                graphicInstanceId: graphicInstanceId,
-                statusCode: response?.statusCode ?? 200,
-                statusMessage: response?.statusMessage,
-                ...(command === "playAction" && response && "currentStep" in response
-                    ? { currentStep: response.currentStep }
-                    : {}),
-            };
-        });
-    }
-
-    function sendInstanceCommand(
-        rendererId: string,
-        command: "updateAction" | "playAction" | "stopAction" | "graphicCustomAction",
-        graphicInstanceId: string,
-        params: JsonObject,
-        customActionId?: string,
-    ) {
-        const skipAnimation = typeof params.skipAnimation === "boolean" ? params.skipAnimation : undefined;
-        const common = { graphicInstanceId: graphicInstanceId, skipAnimation: skipAnimation };
-        switch (command) {
-            case "updateAction":
-                return gateway.sendCommand(rendererId, command, {
-                    ...common,
-                    data: params.data,
-                });
-            case "playAction":
-                return gateway.sendCommand(rendererId, command, {
-                    ...common,
-                    delta: typeof params.delta === "number" ? params.delta : undefined,
-                    goto: typeof params.goto === "number" ? params.goto : undefined,
-                });
-            case "stopAction":
-                return gateway.sendCommand(rendererId, command, common);
-            case "graphicCustomAction":
-                return gateway.sendCommand(rendererId, command, {
-                    ...common,
-                    id: customActionId ?? "",
-                    payload: params.payload,
-                });
-        }
-        throw new Error("Unsupported renderer command");
+        return withTransport(c, () =>
+            executeInstanceAction(actionDeps, rendererId, command, input, c.req.param("customActionId")),
+        );
     }
 
     return app;
