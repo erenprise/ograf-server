@@ -136,7 +136,9 @@ export const adminGraphicDetailQuery = (graphicId: string) =>
 export const settingsQuery = queryOptions({
     queryKey: ["admin", "settings"],
     queryFn: ({ signal }) =>
-        readJsonResponse<{ authEnabled: boolean }>(admin.settings.$get(undefined, { init: { signal: signal } })),
+        readJsonResponse<{ authEnabled: boolean; localOrigins: string[] }>(
+            admin.settings.$get(undefined, { init: { signal: signal } }),
+        ),
 });
 
 export const tokensQuery = queryOptions({

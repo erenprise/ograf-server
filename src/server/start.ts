@@ -11,6 +11,7 @@ import { createServerEvents } from "./events.ts";
 import { watchGraphicsFolder } from "./graphics-watcher.ts";
 import { createGraphicsStore } from "./graphics.ts";
 import { createLiveUpdateGateway } from "./live-updates.ts";
+import { localOrigins } from "./local-origins.ts";
 import { createLogStore } from "./logs.ts";
 import { createRendererService } from "./renderers.ts";
 import { createRendererGateway } from "./sockets.ts";
@@ -148,11 +149,17 @@ async function main() {
         logs: logs,
         uploadTempDir: uploadTempDir,
         events: events,
+        getLocalOrigins: () => localOrigins(listenPort()),
         renderHtml: renderHtml,
         appAssets: appAssets,
     });
 
     honoListener = getRequestListener(app.fetch);
+
+    const listenPort = () => {
+        const address = server.address();
+        return typeof address === "object" && address ? address.port : port;
+    };
 
     server.on("upgrade", (req, socket, head) => {
         let pathname: string;

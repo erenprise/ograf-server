@@ -98,7 +98,7 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                         <Heading size="sm">{renderer.name}</Heading>
                         <IdBadge>{renderer.id}</IdBadge>
                         <Text color="fg.muted" fontSize="sm">
-                            {renderer.resolution.width}×{renderer.resolution.height} · {renderer.frameRate} fps
+                            {renderer.resolution.width}×{renderer.resolution.height} {renderer.frameRate}fps
                         </Text>
                     </HStack>
                     <HStack gap="2" flexShrink="0">

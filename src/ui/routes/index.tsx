@@ -1,6 +1,21 @@
-import { Button, Card, Code, Dialog, Field, Flex, Heading, HStack, Input, Stack, Switch, Text } from "@chakra-ui/react";
+import {
+    Button,
+    Card,
+    Code,
+    Dialog,
+    Field,
+    Flex,
+    Grid,
+    Heading,
+    HStack,
+    Input,
+    Stack,
+    Switch,
+    Text,
+} from "@chakra-ui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { homepage } from "../../../package.json" with { type: "json" };
 import { DEFAULT_FRAME_RATE, DEFAULT_RESOLUTION } from "../../shared.ts";
 import { adminRenderersQuery, createRenderer } from "../api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -16,19 +31,24 @@ export function HomePage() {
     const [showAdd, setShowAdd] = useState(false);
 
     return (
-        <Stack gap="6">
+        <Stack gap="4">
             <Card.Root>
-                <Card.Body gap="3">
+                <Card.Body gap="2">
                     <Heading size="sm">Server</Heading>
-                    <UrlDisplay path="/api/ograf/v1" label="OGraf API:" />
-                    <UrlDisplay path="/docs/ograf" label="OGraf API Docs:" />
-                    <UrlDisplay path="/docs/admin" label="Admin API Docs:" />
-                    <HStack gap="2">
-                        <Text fontSize="sm" color="fg.muted">
-                            Graphics Folder:
-                        </Text>
-                        <Code>./ograf-server/graphics</Code>
-                    </HStack>
+                    <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap="6" alignItems="start">
+                        <UrlDisplay path="/api/ograf/v1" label="OGraf API:" allOrigins />
+                        <Stack gap="1">
+                            <UrlDisplay path="/docs/ograf" label="OGraf API Docs:" />
+                            <UrlDisplay path="/docs/admin" label="Admin API Docs:" />
+                            <HStack gap="2">
+                                <Text fontSize="sm" color="fg.muted">
+                                    Graphics Folder:
+                                </Text>
+                                <Code>./ograf-server/graphics</Code>
+                            </HStack>
+                            <UrlDisplay path={homepage} label="GitHub:" />
+                        </Stack>
+                    </Grid>
                 </Card.Body>
             </Card.Root>
 

@@ -47,6 +47,7 @@ type AdminApiDeps = {
     logs: LogStore;
     uploadTempDir: string;
     events: ServerEvents;
+    getLocalOrigins: () => string[];
 };
 
 export type AdminApi = ReturnType<typeof createAdminApi>;
@@ -187,7 +188,7 @@ async function receiveUpload(
 }
 
 export function createAdminApi(deps: AdminApiDeps) {
-    const { renderers, graphics, gateway, auth, logs, uploadTempDir, events } = deps;
+    const { renderers, graphics, gateway, auth, logs, uploadTempDir, events, getLocalOrigins } = deps;
 
     const rendererSummary = (config: RendererConfig) => ({
         ...config,
@@ -326,7 +327,7 @@ export function createAdminApi(deps: AdminApiDeps) {
             events.emit({ type: "graphics.changed" });
             return c.json({});
         })
-        .get("/settings", (c) => c.json({ authEnabled: auth.isEnabled() }))
+        .get("/settings", (c) => c.json({ authEnabled: auth.isEnabled(), localOrigins: getLocalOrigins() }))
         .patch("/settings", sValidator("json", SettingsSchema), async (c) => {
             try {
                 await auth.setEnabled(c.req.valid("json").enabled);

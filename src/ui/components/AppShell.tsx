@@ -1,7 +1,8 @@
-import { Box, Button, Card, Container, Flex, Heading, HStack, Input, Stack, Text } from "@chakra-ui/react";
+import { Badge, Box, Button, Card, Container, Flex, Heading, HStack, Input, Stack, Text } from "@chakra-ui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { version } from "../../../package.json" with { type: "json" };
 import { LOG_CATEGORIES, LOG_LEVELS, isRecord, type LogEntry, type ServerEvent } from "../../shared.ts";
 import { AdminApiError, loginAdmin, logoutAdmin, logsQuery, adminRenderersQuery, settingsQuery } from "../api.ts";
 import { FieldError } from "./FieldError.tsx";
@@ -55,7 +56,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Container maxW="6xl" py="3">
                     <Flex align="center" gap="8" justify="space-between">
                         <HStack gap="8">
-                            <Heading size="md">OGraf Server</Heading>
+                            <HStack gap="2" align="baseline">
+                                <Heading size="md">OGraf Server</Heading>
+                                <Badge size="md" variant="subtle" colorPalette="gray">
+                                    v{version}
+                                </Badge>
+                            </HStack>
                             <HStack gap="1">
                                 {NAV.map((item) => (
                                     <Link

@@ -90,7 +90,7 @@ export function LoadGraphicDialog({
                                             <Stack gap="0" flex="1" minW="0">
                                                 <Text fontWeight="medium">{item.label}</Text>
                                                 <Text fontSize="xs" color="fg.muted" fontFamily="mono">
-                                                    {item.version ? `${item.value} · v${item.version}` : item.value}
+                                                    {item.version ? `${item.value} v${item.version}` : item.value}
                                                 </Text>
                                                 {item.description && (
                                                     <Text fontSize="xs" color="fg.muted" lineClamp={2}>

@@ -35,6 +35,7 @@ type AppDeps = {
     logs: LogStore;
     uploadTempDir: string;
     events: ServerEvents;
+    getLocalOrigins: () => string[];
     renderHtml: (entry: "admin" | "renderer", url: string) => Promise<string>;
     appAssets: AppAssets;
 };
@@ -54,7 +55,8 @@ const sessionCookieOptions = (c: Context) => ({
 });
 
 export function createApp(deps: AppDeps): Hono {
-    const { graphics, renderers, gateway, auth, logs, uploadTempDir, events, renderHtml, appAssets } = deps;
+    const { graphics, renderers, gateway, auth, logs, uploadTempDir, events, getLocalOrigins, renderHtml, appAssets } =
+        deps;
     const app = new Hono();
     const serveAppAsset = async (c: Context, key: string): Promise<Response> => {
         const asset = await appAssets.read(key);
@@ -120,6 +122,7 @@ export function createApp(deps: AppDeps): Hono {
             logs: logs,
             uploadTempDir: uploadTempDir,
             events: events,
+            getLocalOrigins: getLocalOrigins,
         }),
     );
 

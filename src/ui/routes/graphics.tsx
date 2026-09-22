@@ -195,14 +195,14 @@ function GraphicCard({ graphic, onChanged }: { graphic: AdminGraphicSummary; onC
                         </HStack>
 
                         <Text fontSize="sm" color="fg.muted">
-                            {identity.join(" · ")}
+                            {identity.join(", ")}
                         </Text>
                         <Text fontSize="xs" color="fg.muted" wordBreak="break-all">
                             Manifest: {graphic.manifestPath}
                         </Text>
                         {graphic.description && <Text fontSize="sm">{graphic.description}</Text>}
                         <Text fontSize="xs" color="fg.muted">
-                            {capabilities.join(" · ")}
+                            {capabilities.join(", ")}
                         </Text>
 
                         {graphic.pendingDelete && graphic.deleteAfter && (

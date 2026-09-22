@@ -98,7 +98,7 @@ export const adminOpenApiDocument = {
             },
         },
         "/settings": {
-            get: { summary: "Get server settings", responses: { 200: { description: "OK" } } },
+            get: { summary: "Get server settings and local access URLs", responses: { 200: { description: "OK" } } },
             patch: {
                 summary: "Update server settings (e.g. enable/disable auth)",
                 responses: { 200: { description: "OK" } },
