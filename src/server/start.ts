@@ -8,6 +8,7 @@ import { createApp } from "./app.ts";
 import { createAppAssets } from "./assets.ts";
 import { checkApiAccess, checkRendererAccess, createAuthStore } from "./auth.ts";
 import { createServerEvents } from "./events.ts";
+import { watchGraphicsFolder } from "./graphics-watcher.ts";
 import { createGraphicsStore } from "./graphics.ts";
 import { createLiveUpdateGateway } from "./live-updates.ts";
 import { createLogStore } from "./logs.ts";
@@ -88,6 +89,27 @@ async function main() {
         logs: logs,
         isGraphicInUse: gateway.isGraphicInUse,
     });
+    const logStorageError = (message: string, error: unknown) =>
+        logs.add({
+            level: "error",
+            category: "storage",
+            message: `${message}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+
+    const rescanGraphics = () =>
+        graphics.scan().then(
+            () => events.emit({ type: "graphics.changed" }),
+            (error: unknown) => logStorageError("Graphics rescan failed", error),
+        );
+
+    // Started before the initial scan so changes made in between are not missed.
+    await mkdir(graphicsDir, { recursive: true });
+    const graphicsWatcher = watchGraphicsFolder({
+        root: graphicsDir,
+        onChange: () => void rescanGraphics(),
+        onError: (error) => logStorageError("Graphics folder watcher error", error),
+    });
+
     await graphics.cleanupStaging();
     await graphics.scan();
 
@@ -179,12 +201,8 @@ async function main() {
         if (activeSweep) {
             return;
         }
-        const sweep = graphics.runTombstoneSweep().catch((error) => {
-            logs.add({
-                level: "error",
-                category: "storage",
-                message: `Graphic cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-            });
+        const sweep = graphics.runTombstoneSweep().catch((error: unknown) => {
+            logStorageError("Graphic cleanup failed", error);
         });
         activeSweep = sweep;
         void sweep.then(() => {
@@ -218,6 +236,7 @@ async function main() {
         shuttingDown = true;
         logs.add({ level: "info", category: "system", message: `Shutting down (${signal})` });
         clearInterval(sweepInterval);
+        graphicsWatcher.close();
         const serverClosed = new Promise<void>((resolve, reject) => {
             if (!server.listening) {
                 resolve();

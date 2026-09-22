@@ -75,7 +75,7 @@ Multiple output pages can use the same renderer simultaneously. Commands are mir
 
 ## Graphics
 
-Packages live in `ograf-server/graphics/<package-id>/` with an `*.ograf.json` manifest. Uploads stream up to 200 MiB; re-uploading creates a revision. Soft-deleted graphics stay controllable for 5 minutes before garbage collection.
+Packages live in `ograf-server/graphics/<package-id>/` with an `*.ograf.json` manifest. The folder is watched, so packages added, edited, or removed on disk are picked up and reloaded automatically. Uploads stream up to 200 MiB; re-uploading creates a revision. Soft-deleted graphics stay controllable for 5 minutes before garbage collection.
 
 ## License
 

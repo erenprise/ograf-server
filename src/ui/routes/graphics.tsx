@@ -19,13 +19,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { MAX_PACKAGE_ID_LENGTH } from "../../shared.ts";
-import {
-    type AdminGraphicSummary,
-    adminGraphicsQuery,
-    deleteGraphic,
-    rescanGraphics,
-    uploadGraphicPackage,
-} from "../api.ts";
+import { type AdminGraphicSummary, adminGraphicsQuery, deleteGraphic, uploadGraphicPackage } from "../api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { FieldError } from "../components/FieldError.tsx";
 import { Loading } from "../components/Loading.tsx";
@@ -42,8 +36,6 @@ export function GraphicsPage() {
     const [showUpload, setShowUpload] = useState(false);
     const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["admin", "graphics"] });
 
-    const rescan = useMutation({ mutationFn: rescanGraphics, onSuccess: invalidate });
-
     return (
         <Stack gap="6">
             <Flex justify="space-between" align="flex-start" gap="3" wrap="wrap">
@@ -54,9 +46,6 @@ export function GraphicsPage() {
                     </Text>
                 </Box>
                 <HStack gap="2" flexShrink="0">
-                    <Button size="sm" variant="outline" loading={rescan.isPending} onClick={() => rescan.mutate()}>
-                        Rescan
-                    </Button>
                     <Button size="sm" onClick={() => setShowUpload(true)}>
                         Upload Graphic
                     </Button>
@@ -64,7 +53,7 @@ export function GraphicsPage() {
             </Flex>
 
             {isLoading && <Loading />}
-            <FieldError error={error ?? rescan.error} />
+            <FieldError error={error} />
             {!isLoading && !graphics?.length && (
                 <EmptyState
                     title="No graphics found"

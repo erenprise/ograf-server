@@ -188,8 +188,6 @@ export const removeLayer = (rendererId: string, layerId: string) =>
         }),
     );
 
-export const rescanGraphics = () => readJsonResponse(admin.graphics.rescan.$post());
-
 export const uploadGraphicPackage = async (packageId: string, file: File) => {
     const form = new FormData();
     form.append("packageId", packageId);
