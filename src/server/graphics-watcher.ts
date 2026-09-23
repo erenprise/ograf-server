@@ -8,7 +8,7 @@ type GraphicsWatcherOptions = {
     onError: (error: unknown) => void;
 };
 
-// Debounced recursive watcher; hidden paths (".staging", ".DS_Store") are ignored.
+// Debounced recursive watcher, hidden paths are ignored
 export function watchGraphicsFolder({ root, onChange, onError }: GraphicsWatcherOptions): { close: () => void } {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let watcher: FSWatcher | undefined;

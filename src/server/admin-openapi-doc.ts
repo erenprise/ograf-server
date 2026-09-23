@@ -1,3 +1,4 @@
+import type { ApiReferenceConfiguration } from "@scalar/hono-api-reference";
 import packageJson from "../../package.json" with { type: "json" };
 
 export const adminOpenApiDocument = {
@@ -8,7 +9,7 @@ export const adminOpenApiDocument = {
             "Server administration for renderer, graphic, settings and token management. Authentication accepts an API bearer token or the HttpOnly admin session cookie. Authentication can only be enabled when an API-scoped token exists.",
         version: packageJson.version,
     },
-    servers: [{ url: "/api/admin" }, { url: "/api" }],
+    servers: [{ url: "/api/admin" }],
     security: [{ bearerAuth: [] }, { adminSession: [] }],
     components: {
         securitySchemes: {
@@ -127,4 +128,19 @@ export const adminOpenApiDocument = {
             },
         },
     },
-};
+} as const satisfies NonNullable<ApiReferenceConfiguration["content"]>;
+
+export const adminApiReferenceConfig = {
+    theme: "fastify",
+    layout: "classic",
+    defaultOpenAllTags: true,
+    expandAllModelSections: true,
+    expandAllResponses: true,
+    expandAllSchemaProperties: true,
+    hideClientButton: true,
+    hideDarkModeToggle: true,
+    hideModels: true,
+    showOperationId: true,
+    showDeveloperTools: "never",
+    telemetry: false,
+} as const satisfies Partial<ApiReferenceConfiguration>;

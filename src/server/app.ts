@@ -10,7 +10,7 @@ import * as v from "valibot";
 import { MAX_CONTROL_MESSAGE_BYTES, toRendererRuntimeConfig } from "../shared.ts";
 import { createAdminApi } from "./admin.ts";
 import { type AppAssets, OGRAF_OPENAPI_ASSET } from "./assets.ts";
-import { adminOpenApiDocument } from "./admin-openapi-doc.ts";
+import { adminApiReferenceConfig, adminOpenApiDocument } from "./admin-openapi-doc.ts";
 import {
     ADMIN_SESSION_COOKIE,
     checkApiAccess,
@@ -82,24 +82,6 @@ export function createApp(deps: AppDeps): Hono {
 
     app.get("/healthz", (c) => c.json({ ok: true }));
 
-    app.post(
-        "/api/session",
-        bodyLimit({ maxSize: MAX_CONTROL_MESSAGE_BYTES }),
-        sValidator("json", SessionSchema),
-        (c) => {
-            const result = auth.verify(c.req.valid("json").token);
-            if (!result.ok || result.record.scope !== "api") {
-                return problemResponse(problem(401, "Unauthorized", "A valid API-scoped token is required"), 401);
-            }
-            setCookie(c, ADMIN_SESSION_COOKIE, c.req.valid("json").token, sessionCookieOptions(c));
-            return c.json({});
-        },
-    );
-    app.delete("/api/session", (c) => {
-        deleteCookie(c, ADMIN_SESSION_COOKIE, sessionCookieOptions(c));
-        return c.json({});
-    });
-
     app.use("/api/ograf/v1/*", bodyLimit({ maxSize: MAX_CONTROL_MESSAGE_BYTES }));
     app.use("/api/ograf/v1/*", requireApiAuth());
     app.route(
@@ -111,7 +93,24 @@ export function createApp(deps: AppDeps): Hono {
     app.use("/api/admin/*", (c, next) =>
         c.req.path === "/api/admin/graphics/upload" ? next() : adminJsonBodyLimit(c, next),
     );
-    app.use("/api/admin/*", requireApiAuth());
+    const adminApiAuth = requireApiAuth();
+    app.use("/api/admin/*", (c, next) =>
+        c.req.path === "/api/admin/session" && (c.req.method === "POST" || c.req.method === "DELETE")
+            ? next()
+            : adminApiAuth(c, next),
+    );
+    app.post("/api/admin/session", sValidator("json", SessionSchema), (c) => {
+        const result = auth.verify(c.req.valid("json").token);
+        if (!result.ok || result.record.scope !== "api") {
+            return problemResponse(problem(401, "Unauthorized", "A valid API-scoped token is required"), 401);
+        }
+        setCookie(c, ADMIN_SESSION_COOKIE, c.req.valid("json").token, sessionCookieOptions(c));
+        return c.json({});
+    });
+    app.delete("/api/admin/session", (c) => {
+        deleteCookie(c, ADMIN_SESSION_COOKIE, sessionCookieOptions(c));
+        return c.json({});
+    });
     app.route(
         "/api/admin",
         createAdminApi({
@@ -129,9 +128,19 @@ export function createApp(deps: AppDeps): Hono {
     app.get("/docs/ograf/openapi.yaml", async (c) =>
         c.body(await appAssets.readText(OGRAF_OPENAPI_ASSET), 200, { "Content-Type": "application/yaml" }),
     );
-    app.get("/docs/ograf", Scalar({ url: "/docs/ograf/openapi.yaml", pageTitle: "OGraf API Reference" }));
+    app.get(
+        "/docs/ograf",
+        Scalar((c) => ({
+            url: "/docs/ograf/openapi.yaml",
+            pageTitle: "OGraf API Reference",
+            servers: [{ url: new URL("/api/ograf/v1", c.req.url).href }],
+        })),
+    );
     app.on(["GET", "HEAD"], "/docs/json-schemas/*", (c) => serveAppAsset(c, c.req.path.slice("/docs/".length)));
-    app.get("/docs/admin", Scalar({ content: adminOpenApiDocument, pageTitle: "OGraf Server Admin API" }));
+    app.get(
+        "/docs/admin",
+        Scalar({ content: adminOpenApiDocument, pageTitle: "OGraf Server Admin API", ...adminApiReferenceConfig }),
+    );
 
     app.get("/render/:rendererId", async (c) => {
         const rendererId = c.req.param("rendererId");

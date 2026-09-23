@@ -158,7 +158,7 @@ export const logsQuery = queryOptions({
 });
 
 export const loginAdmin = async (token: string) => {
-    const response = await fetch("/api/session", {
+    const response = await fetch("/api/admin/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: token }),
@@ -167,7 +167,7 @@ export const loginAdmin = async (token: string) => {
 };
 
 export const logoutAdmin = async () => {
-    await readJsonResponse(fetch("/api/session", { method: "DELETE" }));
+    await readJsonResponse(fetch("/api/admin/session", { method: "DELETE" }));
 };
 
 export const createRenderer = (input: CreateRendererInput) => readJsonResponse(admin.renderers.$post({ json: input }));
