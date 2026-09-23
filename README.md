@@ -1,5 +1,13 @@
 # ograf-server
 
+[![Release](https://img.shields.io/github/v/release/erenprise/ograf-server)](https://github.com/erenprise/ograf-server/releases)
+[![Release Build](https://github.com/erenprise/ograf-server/actions/workflows/release.yml/badge.svg)](https://github.com/erenprise/ograf-server/actions/workflows/release.yml)
+[![Downloads](https://img.shields.io/github/downloads/erenprise/ograf-server/total)](https://github.com/erenprise/ograf-server/releases)
+![Stars](https://img.shields.io/github/stars/erenprise/ograf-server)
+[![License](https://img.shields.io/github/license/erenprise/ograf-server)](https://github.com/erenprise/ograf-server/blob/main/LICENSE)
+![Node.js](https://img.shields.io/badge/Node.js-26%2B-339933?logo=nodedotjs&logoColor=white)
+![OGraf](https://img.shields.io/badge/OGraf-v1-00B8A9)
+
 [EBU OGraf](https://ograf.ebu.io/) server for managing and rendering broadcast graphics.
 
 Works with the [Erenprise](https://erenprise.com/) client, which has OGraf and CasparCG support built in.
@@ -48,12 +56,6 @@ ograf-server/
 ```
 
 The macOS binary is ad-hoc signed. If Gatekeeper blocks the first launch, allow it via **Right-click → Open** or `xattr -d com.apple.quarantine ografServer`.
-
-## Checks
-
-```sh
-yarn check
-```
 
 ## Authentication
 
