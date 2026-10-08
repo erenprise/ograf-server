@@ -13,10 +13,10 @@ import {
     Switch,
     Text,
 } from "@chakra-ui/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { homepage } from "../../../package.json" with { type: "json" };
-import { DEFAULT_FRAME_RATE, DEFAULT_RESOLUTION } from "../../shared.ts";
+import { DEFAULT_FRAME_RATE, DEFAULT_RESOLUTION, ID_PATTERN } from "../../shared.ts";
 import { adminRenderersQuery, createRenderer } from "../api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { FieldError } from "../components/FieldError.tsx";
@@ -77,15 +77,11 @@ export function HomePage() {
 }
 
 function AddRendererDialog({ onClose }: { onClose: () => void }) {
-    const queryClient = useQueryClient();
     const renderer = useAutoSlug();
 
     const create = useMutation({
         mutationFn: createRenderer,
-        onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ["admin", "renderers"] });
-            onClose();
-        },
+        onSuccess: onClose,
     });
 
     return (
@@ -127,7 +123,7 @@ function AddRendererDialog({ onClose }: { onClose: () => void }) {
                             <Input
                                 required
                                 maxLength={128}
-                                pattern="[A-Za-z0-9][A-Za-z0-9_-]*"
+                                pattern={ID_PATTERN.source}
                                 placeholder="main-output"
                                 value={renderer.id}
                                 onChange={(event) => renderer.setId(event.target.value)}

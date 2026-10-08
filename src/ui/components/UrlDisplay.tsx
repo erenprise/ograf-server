@@ -5,7 +5,7 @@ import { CopyButton } from "./CopyButton.tsx";
 
 function useLocalOrigins(): string[] {
     const { data } = useQuery(settingsQuery);
-    return data?.localOrigins ?? [location.origin];
+    return (data?.localOrigins ?? [location.origin]).filter((origin) => !new URL(origin).hostname.startsWith("["));
 }
 
 function UrlLink({ url, display }: { url: string; display: string }) {

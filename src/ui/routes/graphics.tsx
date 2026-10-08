@@ -16,9 +16,9 @@ import {
     Stack,
     Text,
 } from "@chakra-ui/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { MAX_PACKAGE_ID_LENGTH } from "../../shared.ts";
+import { ID_PATTERN, MAX_PACKAGE_ID_LENGTH } from "../../shared.ts";
 import { type AdminGraphicSummary, adminGraphicsQuery, deleteGraphic, uploadGraphicPackage } from "../api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { FieldError } from "../components/FieldError.tsx";
@@ -32,9 +32,7 @@ const SAMPLE_GRAPHICS = [
 
 export function GraphicsPage() {
     const { data: graphics, isLoading, error } = useQuery(adminGraphicsQuery);
-    const queryClient = useQueryClient();
     const [showUpload, setShowUpload] = useState(false);
-    const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["admin", "graphics"] });
 
     return (
         <Stack gap="6">
@@ -74,27 +72,19 @@ export function GraphicsPage() {
 
             <Stack gap="3">
                 {graphics?.map((graphic) => (
-                    <GraphicCard key={graphic.manifestPath} graphic={graphic} onChanged={invalidate} />
+                    <GraphicCard key={graphic.manifestPath} graphic={graphic} />
                 ))}
             </Stack>
 
-            {showUpload && (
-                <UploadGraphicDialog
-                    onClose={() => setShowUpload(false)}
-                    onUploaded={() => {
-                        invalidate();
-                        setShowUpload(false);
-                    }}
-                />
-            )}
+            {showUpload && <UploadGraphicDialog onClose={() => setShowUpload(false)} />}
         </Stack>
     );
 }
 
-function UploadGraphicDialog({ onClose, onUploaded }: { onClose: () => void; onUploaded: () => void }) {
+function UploadGraphicDialog({ onClose }: { onClose: () => void }) {
     const upload = useMutation({
         mutationFn: ({ packageId, file }: { packageId: string; file: File }) => uploadGraphicPackage(packageId, file),
-        onSuccess: onUploaded,
+        onSuccess: onClose,
     });
 
     return (
@@ -122,7 +112,7 @@ function UploadGraphicDialog({ onClose, onUploaded }: { onClose: () => void; onU
                                 name="packageId"
                                 required
                                 maxLength={MAX_PACKAGE_ID_LENGTH}
-                                pattern="[A-Za-z0-9][A-Za-z0-9_-]*"
+                                pattern={ID_PATTERN.source}
                                 placeholder="news"
                             />
                         </Field.Root>
@@ -148,10 +138,10 @@ function UploadGraphicDialog({ onClose, onUploaded }: { onClose: () => void; onU
     );
 }
 
-function GraphicCard({ graphic, onChanged }: { graphic: AdminGraphicSummary; onChanged: () => void }) {
+function GraphicCard({ graphic }: { graphic: AdminGraphicSummary }) {
     const thumbnail = graphic.thumbnails?.[0];
     const thumbnailSrc = `/api/ograf/v1/graphics/${encodeURIComponent(graphic.id)}/thumbnail?file=${encodeURIComponent(thumbnail?.file ?? "")}`;
-    const remove = useMutation({ mutationFn: () => deleteGraphic(graphic.id), onSuccess: onChanged });
+    const remove = useMutation({ mutationFn: () => deleteGraphic(graphic.id) });
     const errors = graphic.issues.filter((issue) => issue.severity === "error");
     const identity = [
         `ID: ${graphic.id}`,

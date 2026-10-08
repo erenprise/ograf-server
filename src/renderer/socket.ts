@@ -1,13 +1,5 @@
-import {
-    isRecord,
-    type InstanceSnapshot,
-    type RendererCommandExecution,
-    type RendererCommandType,
-    type RendererMessage,
-    type RendererRuntimeConfig,
-} from "../shared.ts";
-
-type CommandHandler = (command: RendererCommandType, payload: unknown) => Promise<RendererCommandExecution>;
+import { isRecord, type RendererMessage, type RendererRuntimeConfig, type RendererStatus } from "../shared.ts";
+import type { createGraphicsRuntime } from "./graphics.ts";
 
 const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000, 5000];
 
@@ -32,8 +24,8 @@ function isRendererMessage(value: unknown): value is RendererMessage {
     if (value.type === "config") {
         return isRuntimeConfig(value.config);
     }
-    if (value.type === "hello") {
-        return typeof value.rendererId === "string" && Array.isArray(value.instances);
+    if (value.type === "ping") {
+        return true;
     }
     if (value.type === "command") {
         return (
@@ -47,7 +39,7 @@ function isRendererMessage(value: unknown): value is RendererMessage {
                 value.command === "rendererCustomAction")
         );
     }
-    return value.type === "result" && typeof value.id === "string" && typeof value.ok === "boolean";
+    return false;
 }
 
 function sendMessage(message: RendererMessage, target: WebSocket) {
@@ -60,16 +52,13 @@ function sendMessage(message: RendererMessage, target: WebSocket) {
     }
 }
 
-export function connectRendererSocket(
-    rendererId: string,
-    getSnapshot: () => InstanceSnapshot[],
-    onCommand: CommandHandler,
-    onConfig: (config: RendererRuntimeConfig) => Promise<void>,
-) {
+export function connectRendererSocket(rendererId: string, runtime: ReturnType<typeof createGraphicsRuntime>) {
     let socket: WebSocket | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let stopped = false;
+    let status: RendererStatus = { status: "OK", message: "Renderer page ready" };
+    let configUpdate = Promise.resolve();
 
     const scheduleReconnect = (closedSocket: WebSocket) => {
         if (stopped || socket !== closedSocket || reconnectTimer !== undefined) {
@@ -101,7 +90,16 @@ export function connectRendererSocket(
             attempt = 0;
             clearTimeout(reconnectTimer);
             reconnectTimer = undefined;
-            sendMessage({ type: "hello", rendererId: rendererId, instances: getSnapshot() }, nextSocket);
+            sendMessage(
+                {
+                    type: "hello",
+                    rendererId: rendererId,
+                    loadedInstanceIds: runtime.getSnapshot().map((instance) => instance.load.graphicInstanceId),
+                    onAir: runtime.getRecoverySnapshot(),
+                },
+                nextSocket,
+            );
+            sendMessage({ type: "status", status: status }, nextSocket);
         });
 
         nextSocket.addEventListener("message", (event: MessageEvent<string>) => handleMessage(event, nextSocket));
@@ -126,7 +124,15 @@ export function connectRendererSocket(
         }
 
         if (message.type === "config") {
-            void onConfig(message.config);
+            configUpdate = configUpdate
+                .then(() => runtime.applyConfig(message.config))
+                .catch((error: unknown) => {
+                    reportStatus({ status: "ERROR", message: error instanceof Error ? error.message : String(error) });
+                });
+            return;
+        }
+        if (message.type === "ping") {
+            sendMessage({ type: "pong" }, source);
             return;
         }
         if (message.type !== "command") {
@@ -138,9 +144,10 @@ export function connectRendererSocket(
 
     async function executeCommand(message: Extract<RendererMessage, { type: "command" }>, source: WebSocket) {
         try {
-            const { result, instances } = await onCommand(message.command, message.payload);
+            await configUpdate;
+            const result = await runtime.handleCommand(message.command, message.payload);
             sendMessage(
-                { type: "result", id: message.id, ok: true, result: result, instances: instances ?? getSnapshot() },
+                { type: "result", id: message.id, ok: true, result: result, instances: runtime.getSnapshot() },
                 source,
             );
         } catch (error) {
@@ -153,7 +160,7 @@ export function connectRendererSocket(
                         message: error instanceof Error ? error.message : String(error),
                         fromGraphic: error instanceof Error && error.name === "GraphicError",
                     },
-                    instances: getSnapshot(),
+                    instances: runtime.getSnapshot(),
                 },
                 source,
             );
@@ -162,7 +169,15 @@ export function connectRendererSocket(
 
     connect();
 
+    function reportStatus(next: RendererStatus) {
+        status = next;
+        if (socket) {
+            sendMessage({ type: "status", status: status }, socket);
+        }
+    }
+
     return {
+        reportStatus: reportStatus,
         stop: () => {
             stopped = true;
             clearTimeout(reconnectTimer);

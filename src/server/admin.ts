@@ -19,13 +19,14 @@ import {
     LOG_CATEGORIES,
     LOG_LEVELS,
     MAX_PACKAGE_ID_LENGTH,
+    MAX_GRAPHIC_PACKAGE_BYTES,
     type RendererConfig,
     type TokenScope,
 } from "../shared.ts";
 import type { AuthStore } from "./auth.ts";
-import { InvalidRequestError, problem, problemResponse } from "./errors.ts";
+import { errorToProblem, isStorageError, InvalidRequestError, problem, problemResponse } from "./errors.ts";
 import type { ServerEvents } from "./events.ts";
-import { getGraphicManifestInfo, type GraphicRecord, type GraphicsStore } from "./graphics.ts";
+import { getGraphicManifestInfo, requireDiskSpace, type GraphicRecord, type GraphicsStore } from "./graphics.ts";
 import type { LogStore } from "./logs.ts";
 import {
     CreateRendererSchema,
@@ -64,8 +65,6 @@ const LogQuerySchema = v.object({
 });
 
 const MAX_UPLOAD_BODY_BYTES = 210 * 1024 * 1024;
-const MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024;
-
 class UploadInputError extends Error {}
 
 class UploadTooLargeError extends UploadInputError {}
@@ -114,10 +113,9 @@ async function parseUploadParts(
 ): Promise<{ packageId: string; zipPath: string }> {
     const parts: UploadParts = {};
     try {
-        await mkdir(uploadTempDir, { recursive: true });
         for await (const part of parseMultipartStream(body, {
             boundary: boundary,
-            maxFileSize: MAX_UPLOAD_FILE_BYTES,
+            maxFileSize: MAX_GRAPHIC_PACKAGE_BYTES,
         })) {
             await storeUploadPart(part, parts, uploadTempDir);
         }
@@ -170,8 +168,17 @@ async function receiveUpload(
     );
 
     try {
+        await mkdir(uploadTempDir, { recursive: true });
+        await requireDiskSpace(
+            uploadTempDir,
+            (contentLength > 0 ? contentLength : MAX_UPLOAD_BODY_BYTES) + MAX_GRAPHIC_PACKAGE_BYTES,
+        );
         return await parseUploadParts(limitedBody, boundary, uploadTempDir);
     } catch (error) {
+        if (isStorageError(error)) {
+            const response = errorToProblem(error);
+            return problemResponse(response.body, response.status);
+        }
         const status = uploadErrorStatus(error);
         if (status === undefined) {
             throw error;
@@ -193,11 +200,11 @@ export function createAdminApi(deps: AdminApiDeps) {
     const rendererSummary = (config: RendererConfig) => ({
         ...config,
         status: gateway.getStatus(config.id),
-        layers: config.layers.map((layer) => ({
-            id: layer.id,
-            name: layer.name,
-            graphicCount: renderers.getRenderTargetInfo(config.id, { layer: layer.id })?.graphicInstances.length ?? 0,
-        })),
+        layers: config.layers.map((layer) => {
+            const graphicInstances =
+                renderers.getRenderTargetInfo(config.id, { layer: layer.id })?.graphicInstances ?? [];
+            return { ...layer, graphicCount: graphicInstances.length, graphicInstances: graphicInstances };
+        }),
     });
 
     const graphicSummary = (record: GraphicRecord) => {
@@ -235,11 +242,12 @@ export function createAdminApi(deps: AdminApiDeps) {
             return c.json({ renderer: rendererSummary(renderer) });
         })
         .delete("/renderers/:rendererId", async (c) => {
-            const ok = await renderers.deleteRenderer(c.req.param("rendererId"));
+            const rendererId = c.req.param("rendererId");
+            const ok = await renderers.deleteRenderer(rendererId);
             if (!ok) {
                 return c.json(problem(404, "Not Found", "No renderer with that id"), 404);
             }
-            events.emit({ type: "renderers.changed" });
+            events.emit({ type: "renderers.changed", rendererId: rendererId });
             return c.json({});
         })
         .post("/renderers/:rendererId/layers", sValidator("json", LayerSchema), async (c) => {
@@ -311,7 +319,6 @@ export function createAdminApi(deps: AdminApiDeps) {
                 if (!result.ok) {
                     return problemResponse(problem(result.status, "Upload failed", result.error), result.status);
                 }
-                events.emit({ type: "graphics.changed" });
                 return c.json({ graphicIds: result.graphicIds });
             } catch (error) {
                 return problemResponse(
@@ -324,7 +331,6 @@ export function createAdminApi(deps: AdminApiDeps) {
         })
         .post("/graphics/rescan", async (c) => {
             await graphics.scan();
-            events.emit({ type: "graphics.changed" });
             return c.json({});
         })
         .get("/settings", (c) => c.json({ authEnabled: auth.isEnabled(), localOrigins: getLocalOrigins() }))

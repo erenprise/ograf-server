@@ -15,9 +15,9 @@ import {
     Stack,
     Text,
 } from "@chakra-ui/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import type { JsonObject } from "../../shared.ts";
+import { ID_PATTERN, type JsonObject } from "../../shared.ts";
 import { useAutoSlug } from "../id.ts";
 import {
     addLayer,
@@ -26,10 +26,8 @@ import {
     type AdminRendererSummary,
     clearGraphics,
     deleteRenderer,
-    type PublicGraphicInstance,
-    type PublicRenderTargetInfo,
+    type GraphicInstance,
     playGraphicInstance,
-    publicRendererQuery,
     removeLayer,
     reorderLayers,
     runGraphicCustomAction,
@@ -44,28 +42,11 @@ import { StatusBadge } from "./StatusBadge.tsx";
 import { RendererUrls } from "./UrlDisplay.tsx";
 
 type AdminRendererLayer = AdminRendererSummary["layers"][number];
-type CommandFn = (...args: never[]) => Promise<unknown>;
-
 export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) {
-    const queryClient = useQueryClient();
-    const { data: detail, error: detailError } = useQuery(publicRendererQuery(renderer.id));
-
-    const invalidate = () => {
-        void queryClient.invalidateQueries({ queryKey: ["admin", "renderers"] });
-        void queryClient.invalidateQueries({ queryKey: ["ograf", "renderer", renderer.id] });
-    };
-    const command = <F extends CommandFn>(run: F) => ({ mutationFn: run, onSuccess: invalidate });
-
-    const reload = useMutation(command(() => runRendererCustomAction(renderer.id, "reload", {})));
-    const clear = useMutation(command(() => clearGraphics(renderer.id, [])));
-    const remove = useMutation({
-        mutationFn: () => deleteRenderer(renderer.id),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "renderers"] }),
-    });
-    const reorder = useMutation({
-        mutationFn: (ids: string[]) => reorderLayers(renderer.id, ids),
-        onSuccess: invalidate,
-    });
+    const reload = useMutation({ mutationFn: () => runRendererCustomAction(renderer.id, "reload", {}) });
+    const clear = useMutation({ mutationFn: () => clearGraphics(renderer.id, []) });
+    const remove = useMutation({ mutationFn: () => deleteRenderer(renderer.id) });
+    const reorder = useMutation({ mutationFn: (ids: string[]) => reorderLayers(renderer.id, ids) });
 
     const moveLayer = (layerId: string, direction: "up" | "down") => {
         const ids = renderer.layers.map((layer) => layer.id);
@@ -127,7 +108,6 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                 </Flex>
 
                 <FieldError error={reload.error ?? clear.error ?? remove.error} />
-                <FieldError error={detailError} />
                 <RendererUrls rendererId={renderer.id} />
 
                 <Stack gap="4">
@@ -141,8 +121,6 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                                 key={layer.id}
                                 rendererId={renderer.id}
                                 layer={layer}
-                                target={detail?.renderTargets.find((target) => target.renderTarget.layer === layer.id)}
-                                onChanged={invalidate}
                                 isFirst={row === 0}
                                 isLast={row === renderer.layers.length - 1}
                                 moving={reorder.isPending}
@@ -151,21 +129,18 @@ export function RendererPanel({ renderer }: { renderer: AdminRendererSummary }) 
                         ))
                     )}
                     <FieldError error={reorder.error} />
-                    <AddLayerRow rendererId={renderer.id} onChanged={invalidate} />
+                    <AddLayerRow rendererId={renderer.id} />
                 </Stack>
             </Card.Body>
         </Card.Root>
     );
 }
 
-function AddLayerRow({ rendererId, onChanged }: { rendererId: string; onChanged: () => void }) {
+function AddLayerRow({ rendererId }: { rendererId: string }) {
     const layer = useAutoSlug();
     const add = useMutation({
         mutationFn: () => addLayer(rendererId, { id: layer.id, name: layer.name }),
-        onSuccess: () => {
-            layer.reset();
-            onChanged();
-        },
+        onSuccess: layer.reset,
     });
 
     return (
@@ -194,7 +169,7 @@ function AddLayerRow({ rendererId, onChanged }: { rendererId: string; onChanged:
                         size="sm"
                         required
                         maxLength={128}
-                        pattern="[A-Za-z0-9][A-Za-z0-9_-]*"
+                        pattern={ID_PATTERN.source}
                         aria-label="Layer ID"
                         placeholder="layer-id"
                         value={layer.id}
@@ -213,8 +188,6 @@ function AddLayerRow({ rendererId, onChanged }: { rendererId: string; onChanged:
 function LayerSection({
     rendererId,
     layer,
-    target,
-    onChanged,
     isFirst,
     isLast,
     moving,
@@ -222,20 +195,16 @@ function LayerSection({
 }: {
     rendererId: string;
     layer: AdminRendererLayer;
-    target: PublicRenderTargetInfo | undefined;
-    onChanged: () => void;
     isFirst: boolean;
     isLast: boolean;
     moving: boolean;
     onMove: (direction: "up" | "down") => void;
 }) {
     const [showLoad, setShowLoad] = useState(false);
-    const instances = target?.graphicInstances ?? [];
+    const instances = layer.graphicInstances;
     const renderTarget: JsonObject = { layer: layer.id };
-    const command = <F extends CommandFn>(run: F) => ({ mutationFn: run, onSuccess: onChanged });
-
-    const clear = useMutation(command(() => clearGraphics(rendererId, [{ renderTarget: renderTarget }])));
-    const remove = useMutation(command(() => removeLayer(rendererId, layer.id)));
+    const clear = useMutation({ mutationFn: () => clearGraphics(rendererId, [{ renderTarget: renderTarget }]) });
+    const remove = useMutation({ mutationFn: () => removeLayer(rendererId, layer.id) });
 
     const handleRemove = () => {
         if (!layer.graphicCount || confirm(`Remove layer "${layer.id}" and its loaded graphics?`)) {
@@ -310,7 +279,6 @@ function LayerSection({
                                     rendererId={rendererId}
                                     renderTarget={renderTarget}
                                     instance={instance}
-                                    onChanged={onChanged}
                                 />
                             ))}
                         </Stack>
@@ -325,7 +293,6 @@ function LayerSection({
                     rendererId={rendererId}
                     renderTarget={renderTarget}
                     onClose={() => setShowLoad(false)}
-                    onLoaded={onChanged}
                 />
             )}
         </>
@@ -336,18 +303,18 @@ function GraphicInstanceRow({
     rendererId,
     renderTarget,
     instance,
-    onChanged,
 }: {
     rendererId: string;
     renderTarget: JsonObject;
-    instance: PublicGraphicInstance;
-    onChanged: () => void;
+    instance: GraphicInstance;
 }) {
     const { graphicInstanceId } = instance;
     const [expanded, setExpanded] = useState(false);
-    const { data: graphics } = useQuery({ ...adminGraphicsQuery, enabled: expanded });
+    const { data: graphics } = useQuery(adminGraphicsQuery);
+    const graphic = graphics?.find((item) => item.id === instance.graphic.id);
     const { data: manifest, error: manifestError } = useQuery({
         ...adminGraphicDetailQuery(instance.graphic.id),
+        enabled: expanded,
     });
     const [data, setData] = useState<Record<string, unknown>>({});
     const [customActionId, setCustomActionId] = useState("");
@@ -356,24 +323,26 @@ function GraphicInstanceRow({
     const selectedAction = customActions.find((action) => action.id === customActionId);
     const formData = { ...schemaDefaults(manifest?.schema), ...data };
     const customFormData = { ...schemaDefaults(selectedAction?.schema), ...customPayload };
-    const command = <F extends CommandFn>(run: F) => ({ mutationFn: run, onSuccess: onChanged });
+    const stepCount = graphic?.stepCount ?? 1;
+    const hasSteps = stepCount === -1 || stepCount > 1;
 
-    const update = useMutation(
-        command(() => updateGraphicInstance(rendererId, renderTarget, graphicInstanceId, formData)),
-    );
-    const play = useMutation(
-        command((delta: number) => playGraphicInstance(rendererId, renderTarget, graphicInstanceId, delta)),
-    );
-    const stop = useMutation(command(() => stopGraphicInstance(rendererId, renderTarget, graphicInstanceId)));
-    const clearOne = useMutation(command(() => clearGraphics(rendererId, [{ graphicInstanceId: graphicInstanceId }])));
-    const runCustom = useMutation(
-        command(() =>
+    const update = useMutation({
+        mutationFn: () => updateGraphicInstance(rendererId, renderTarget, graphicInstanceId, formData),
+    });
+    const play = useMutation({
+        mutationFn: (delta: number) =>
+            playGraphicInstance(rendererId, renderTarget, graphicInstanceId, hasSteps ? { delta: delta } : { goto: 0 }),
+    });
+    const stop = useMutation({ mutationFn: () => stopGraphicInstance(rendererId, renderTarget, graphicInstanceId) });
+    const clearOne = useMutation({
+        mutationFn: () => clearGraphics(rendererId, [{ graphicInstanceId: graphicInstanceId }]),
+    });
+    const runCustom = useMutation({
+        mutationFn: () =>
             runGraphicCustomAction(rendererId, renderTarget, graphicInstanceId, customActionId, customFormData),
-        ),
-    );
+    });
 
-    const version = graphics?.find((graphic) => graphic.id === instance.graphic.id)?.version;
-    const hasSteps = (manifest?.stepCount ?? 1) !== 1;
+    const version = graphic?.version;
     const error = [manifestError, update.error, play.error, stop.error, clearOne.error].find((item) => item);
 
     return (
@@ -386,7 +355,7 @@ function GraphicInstanceRow({
                         </Button>
                     </Collapsible.Trigger>
                     <Text fontSize="sm" fontWeight="medium" flex="1" minW="8rem" truncate>
-                        {instance.graphic.name}
+                        {graphic?.name ?? instance.graphic.name}
                     </Text>
                     <HStack gap="1" flexShrink="0" ms="auto">
                         {hasSteps && (

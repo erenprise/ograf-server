@@ -1,13 +1,15 @@
 import type { GraphicsAPI } from "ograf";
 import {
+    commandSucceeded,
     isGraphicFilter,
-    isJsonObject,
+    isInstanceSnapshot,
+    isLoadPayload,
     isRecord,
     matchesGraphicFilter,
     type InstanceSnapshot,
     type JsonObject,
     type RenderCharacteristics,
-    type RendererCommandExecution,
+    type RendererCommandResult,
     type RendererCommandMap,
     type RendererCommandType,
     type RendererRuntimeConfig,
@@ -23,12 +25,8 @@ class GraphicError extends Error {
 type RealtimeGraphic = HTMLElement &
     Pick<GraphicsAPI.Graphic, "load" | "dispose" | "playAction" | "stopAction" | "updateAction" | "customAction">;
 
-type LoadedInstance = {
-    graphicInstanceId: string;
-    graphicId: string;
-    renderTarget: JsonObject;
+type LoadedInstance = InstanceSnapshot & {
     el: RealtimeGraphic;
-    currentStep?: number;
 };
 
 type LoadPayload = RendererCommandMap["load"]["payload"];
@@ -40,9 +38,7 @@ type ClearPayload = RendererCommandMap["clear"]["payload"];
 type RendererActionPayload = RendererCommandMap["rendererCustomAction"]["payload"];
 
 type PendingLoad = {
-    graphicInstanceId: string;
-    graphicId: string;
-    renderTarget: JsonObject;
+    load: LoadPayload;
     element?: RealtimeGraphic;
 };
 
@@ -97,18 +93,6 @@ function optionalBoolean(value: Record<string, unknown>, key: string): boolean {
     return value[key] === undefined || typeof value[key] === "boolean";
 }
 
-function isLoadPayload(value: unknown): value is LoadPayload {
-    return (
-        isRecord(value) &&
-        typeof value.graphicInstanceId === "string" &&
-        isJsonObject(value.renderTarget) &&
-        typeof value.graphicId === "string" &&
-        typeof value.graphicRevision === "string" &&
-        isRecord(value.manifest) &&
-        typeof value.mainUrl === "string"
-    );
-}
-
 function isUpdatePayload(value: unknown): value is UpdatePayload {
     return isRecord(value) && typeof value.graphicInstanceId === "string" && optionalBoolean(value, "skipAnimation");
 }
@@ -147,7 +131,7 @@ function isRendererActionPayload(value: unknown): value is RendererActionPayload
 async function rendererCustomAction(payload: RendererActionPayload) {
     if (payload.customActionId === "reload") {
         setTimeout(() => location.reload(), 50);
-        return { result: { statusCode: 200, statusMessage: "Reloading" } };
+        return { statusCode: 200, statusMessage: "Reloading" };
     }
     throw new Error(`Unknown renderer custom action "${payload.customActionId}"`);
 }
@@ -175,6 +159,30 @@ async function disposeGraphic(element: RealtimeGraphic): Promise<void> {
 export function createGraphicsRuntime(config: RendererRuntimeConfig) {
     const instances = new Map<string, LoadedInstance>();
     const pendingLoads = new Map<string, PendingLoad>();
+    const storageKey = `ograf-on-air:${config.id}`;
+    const onAir = new Map<string, InstanceSnapshot>();
+    try {
+        const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
+        if (Array.isArray(saved) && saved.every(isInstanceSnapshot)) {
+            for (const snapshot of saved) {
+                onAir.set(snapshot.load.graphicInstanceId, snapshot);
+            }
+        }
+    } catch {
+        console.warn("Could not read saved renderer state");
+    }
+    const saveState = () => {
+        try {
+            sessionStorage.setItem(storageKey, JSON.stringify([...onAir.values()]));
+        } catch {
+            console.warn("Could not save renderer state");
+        }
+    };
+    const saveInstance = (instance: LoadedInstance) => {
+        const { el: _element, ...snapshot } = instance;
+        onAir.set(instance.load.graphicInstanceId, snapshot);
+        saveState();
+    };
     const root = document.getElementById("ograf-renderer");
     if (!root) {
         throw new GraphicError('Renderer root element "ograf-renderer" was not found');
@@ -198,11 +206,24 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
     };
 
     const applyConfig = async (next: RendererRuntimeConfig): Promise<void> => {
+        if (renderCharacteristics.accessToPublicInternet !== next.accessToPublicInternet) {
+            location.reload();
+            return;
+        }
         renderCharacteristics.resolution = next.resolution;
         renderCharacteristics.frameRate = next.frameRate;
         renderCharacteristics.accessToPublicInternet = next.accessToPublicInternet;
 
         const nextLayerIds = new Set(next.layers.map((layer) => layer.id));
+        for (const [id, snapshot] of onAir) {
+            if (
+                typeof snapshot.load.renderTarget.layer !== "string" ||
+                !nextLayerIds.has(snapshot.load.renderTarget.layer)
+            ) {
+                onAir.delete(id);
+            }
+        }
+        saveState();
         const removedLayerIds = new Set<string>();
         for (const [layerId, element] of layerElements) {
             if (nextLayerIds.has(layerId)) {
@@ -215,11 +236,11 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
         const isRemovedLayer = (renderTarget: JsonObject) =>
             typeof renderTarget.layer === "string" && removedLayerIds.has(renderTarget.layer);
         for (const [id, pending] of pendingLoads) {
-            if (isRemovedLayer(pending.renderTarget)) {
+            if (isRemovedLayer(pending.load.renderTarget)) {
                 pendingLoads.delete(id);
             }
         }
-        const removals = [...instances].filter(([, instance]) => isRemovedLayer(instance.renderTarget));
+        const removals = [...instances].filter(([, instance]) => isRemovedLayer(instance.load.renderTarget));
         await Promise.allSettled(
             removals.map(async ([id, instance]) => {
                 await disposeGraphic(instance.el);
@@ -240,14 +261,15 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
 
     const getSnapshot = (): InstanceSnapshot[] =>
         Array.from(instances.values()).map((instance) => ({
-            graphicInstanceId: instance.graphicInstanceId,
-            graphicId: instance.graphicId,
-            renderTarget: instance.renderTarget,
             currentStep: instance.currentStep,
+            load: instance.load,
+            latestUpdate: instance.latestUpdate,
+            playing: instance.playing,
         }));
 
     // A load is current while it is still the latest entry for its instance id.
-    const isCurrentLoad = (pending: PendingLoad): boolean => pendingLoads.get(pending.graphicInstanceId) === pending;
+    const isCurrentLoad = (pending: PendingLoad): boolean =>
+        pendingLoads.get(pending.load.graphicInstanceId) === pending;
 
     const load = async (payload: LoadPayload) => {
         const layerId = typeof payload.renderTarget.layer === "string" ? payload.renderTarget.layer : undefined;
@@ -257,9 +279,7 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
         }
 
         const pending: PendingLoad = {
-            graphicInstanceId: payload.graphicInstanceId,
-            graphicId: payload.graphicId,
-            renderTarget: payload.renderTarget,
+            load: payload,
         };
         pendingLoads.set(payload.graphicInstanceId, pending);
 
@@ -269,7 +289,6 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
             await disposeGraphic(previous.el);
         }
 
-        let committed = false;
         try {
             const element = await importGraphicElement(payload);
             pending.element = element;
@@ -281,7 +300,7 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
             const result = await callGraphicMethod(
                 () =>
                     element.load({
-                        data: payload.data,
+                        data: structuredClone(payload.data),
                         renderType: "realtime",
                         renderCharacteristics: renderCharacteristics,
                     }),
@@ -292,67 +311,80 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
                 throw new GraphicError(`Graphic load "${payload.graphicInstanceId}" was superseded`);
             }
 
-            instances.set(payload.graphicInstanceId, {
-                graphicInstanceId: payload.graphicInstanceId,
-                graphicId: payload.graphicId,
-                renderTarget: payload.renderTarget,
-                el: element,
-            });
-            committed = true;
-            pendingLoads.delete(payload.graphicInstanceId);
-            return { result: result, instances: getSnapshot() };
+            if (!commandSucceeded(result)) {
+                await disposeGraphic(element);
+                return result;
+            }
+            const instance: LoadedInstance = { el: element, load: payload, playing: false };
+            instances.set(payload.graphicInstanceId, instance);
+            saveInstance(instance);
+            return result;
         } catch (error) {
-            if (!committed && pending.element) {
+            if (pending.element) {
                 await disposeGraphic(pending.element);
             }
+            throw error;
+        } finally {
             if (isCurrentLoad(pending)) {
                 pendingLoads.delete(payload.graphicInstanceId);
             }
-            throw error;
         }
     };
 
-    const withInstance = async <T>(
+    const runInstanceMethod = async <T>(
         graphicInstanceId: string,
+        methodName: string,
         fn: (instance: LoadedInstance) => Promise<T>,
     ): Promise<T> => {
         const instance = instances.get(graphicInstanceId);
         if (!instance) {
             throw new Error(`No loaded GraphicInstance "${graphicInstanceId}"`);
         }
-        return fn(instance);
+        return callGraphicMethod(() => fn(instance), methodName);
     };
 
-    const runInstanceMethod = <T>(
-        graphicInstanceId: string,
-        methodName: string,
-        fn: (instance: LoadedInstance) => Promise<T>,
-    ) =>
-        withInstance(graphicInstanceId, async (instance) => {
-            const result = await callGraphicMethod(() => fn(instance), methodName);
-            return { result: result, instances: getSnapshot() };
+    const updateAction = (payload: UpdatePayload) =>
+        runInstanceMethod(payload.graphicInstanceId, "updateAction", async (instance) => {
+            const result = await instance.el.updateAction({
+                data: structuredClone(payload.data),
+                skipAnimation: payload.skipAnimation,
+            });
+            if (commandSucceeded(result)) {
+                instance.latestUpdate = { data: payload.data };
+                saveInstance(instance);
+            }
+            return result;
         });
 
-    const updateAction = (payload: UpdatePayload) =>
-        runInstanceMethod(payload.graphicInstanceId, "updateAction", (instance) =>
-            instance.el.updateAction({ data: payload.data, skipAnimation: payload.skipAnimation }),
-        );
-
     const playAction = (payload: PlayPayload) =>
-        withInstance(payload.graphicInstanceId, async (instance) => {
+        runInstanceMethod(payload.graphicInstanceId, "playAction", async (instance) => {
             const params =
                 payload.goto !== undefined
                     ? { goto: payload.goto, skipAnimation: payload.skipAnimation }
                     : { delta: payload.delta ?? 1, skipAnimation: payload.skipAnimation };
-            const result = await callGraphicMethod(() => instance.el.playAction(params), "playAction");
+            const result = await instance.el.playAction(params);
+            if (!commandSucceeded(result)) {
+                return result;
+            }
+            if (result?.currentStep !== undefined && !Number.isSafeInteger(result.currentStep)) {
+                throw new GraphicError("Graphic playAction returned an invalid step");
+            }
             instance.currentStep = result?.currentStep;
-            return { result: result, instances: getSnapshot() };
+            instance.playing = instance.currentStep !== undefined;
+            saveInstance(instance);
+            return result;
         });
 
     const stopAction = (payload: StopPayload) =>
-        runInstanceMethod(payload.graphicInstanceId, "stopAction", (instance) =>
-            instance.el.stopAction({ skipAnimation: payload.skipAnimation }),
-        );
+        runInstanceMethod(payload.graphicInstanceId, "stopAction", async (instance) => {
+            const result = await instance.el.stopAction({ skipAnimation: payload.skipAnimation });
+            if (commandSucceeded(result)) {
+                instance.playing = false;
+                instance.currentStep = undefined;
+                saveInstance(instance);
+            }
+            return result;
+        });
 
     const graphicCustomAction = (payload: GraphicActionPayload) =>
         runInstanceMethod(payload.graphicInstanceId, "customAction", (instance) =>
@@ -364,15 +396,28 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
         );
 
     const clear = async (payload: ClearPayload) => {
+        for (const [id, snapshot] of onAir) {
+            if (
+                !payload.filters.length ||
+                payload.filters.some((filter) => matchesGraphicFilter(snapshot.load, filter))
+            ) {
+                onAir.delete(id);
+            }
+        }
+        saveState();
         for (const [id, pending] of pendingLoads) {
-            if (!payload.filters.length || payload.filters.some((filter) => matchesGraphicFilter(pending, filter))) {
+            if (
+                !payload.filters.length ||
+                payload.filters.some((filter) => matchesGraphicFilter(pending.load, filter))
+            ) {
                 pendingLoads.delete(id);
             }
         }
 
         const matches = [...instances].filter(
             ([, instance]) =>
-                !payload.filters.length || payload.filters.some((filter) => matchesGraphicFilter(instance, filter)),
+                !payload.filters.length ||
+                payload.filters.some((filter) => matchesGraphicFilter(instance.load, filter)),
         );
         await Promise.allSettled(
             matches.map(async ([id, instance]) => {
@@ -381,17 +426,14 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
             }),
         );
         return {
-            result: {
-                graphicInstances: matches.map(([, instance]) => ({
-                    renderTarget: instance.renderTarget,
-                    graphicInstanceId: instance.graphicInstanceId,
-                })),
-            },
-            instances: getSnapshot(),
+            graphicInstances: matches.map(([, instance]) => ({
+                renderTarget: instance.load.renderTarget,
+                graphicInstanceId: instance.load.graphicInstanceId,
+            })),
         };
     };
 
-    const handleCommand = (command: RendererCommandType, payload: unknown): Promise<RendererCommandExecution> => {
+    const handleCommand = (command: RendererCommandType, payload: unknown): Promise<RendererCommandResult> => {
         if (command === "load" && isLoadPayload(payload)) {
             return load(payload);
         }
@@ -419,6 +461,7 @@ export function createGraphicsRuntime(config: RendererRuntimeConfig) {
     return {
         handleCommand: handleCommand,
         getSnapshot: getSnapshot,
+        getRecoverySnapshot: () => [...onAir.values()],
         applyConfig: applyConfig,
     };
 }

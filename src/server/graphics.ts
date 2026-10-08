@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream, createWriteStream, mkdirSync } from "node:fs";
-import { mkdir, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, rm, stat, statfs } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import {
     validatePackage,
@@ -10,10 +10,10 @@ import {
     type VirtualFS,
 } from "@streamshapers/ograf-validator-core";
 import { Unzip, UnzipInflate, UnzipPassThrough, type UnzipFile } from "fflate";
-import { isRecord, MAX_PACKAGE_ID_LENGTH } from "../shared.ts";
-import { hasErrorCode } from "./errors.ts";
+import { ID_PATTERN, isRecord, MAX_GRAPHIC_PACKAGE_BYTES, MAX_PACKAGE_ID_LENGTH } from "../shared.ts";
+import { hasErrorCode, InsufficientStorageError, isStorageError } from "./errors.ts";
 import type { LogStore } from "./logs.ts";
-import { ID_PATTERN, type StateStore } from "./state.ts";
+import type { StateStore } from "./state.ts";
 
 export type GraphicRecord = {
     id: string;
@@ -79,12 +79,18 @@ type PackageFileMetadata = {
     mtimeMs: number;
 };
 
-const MAX_ZIP_TOTAL_BYTES = 200 * 1024 * 1024;
 const MAX_ZIP_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_ZIP_FILE_COUNT = 5000;
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const TOMBSTONE_GRACE_MS = 5 * 60 * 1000;
 const STAGING_DIR_NAME = ".staging";
+
+export async function requireDiskSpace(directory: string, bytes: number): Promise<void> {
+    const disk = await statfs(directory, { bigint: true });
+    if (disk.bavail * disk.bsize < BigInt(bytes) + 64n * 1024n * 1024n) {
+        throw new InsufficientStorageError("Not enough free disk space for the graphic package");
+    }
+}
 
 function safeJoinPath(base: string, relPath: string): string | undefined {
     if (
@@ -282,7 +288,7 @@ async function finishWriteStream(stream: ReturnType<typeof createWriteStream>): 
 }
 
 async function extractZip(zipPath: string, stagingDir: string): Promise<void> {
-    if ((await stat(zipPath)).size > MAX_ZIP_TOTAL_BYTES) {
+    if ((await stat(zipPath)).size > MAX_GRAPHIC_PACKAGE_BYTES) {
         throw new Error("ZIP file exceeds the size limit");
     }
 
@@ -348,7 +354,7 @@ async function extractZip(zipPath: string, stagingDir: string): Promise<void> {
                 file.terminate();
                 return;
             }
-            if (totalBytes > MAX_ZIP_TOTAL_BYTES) {
+            if (totalBytes > MAX_GRAPHIC_PACKAGE_BYTES) {
                 extractionError = new Error("ZIP file exceeds the total decompressed size limit");
                 file.terminate();
                 return;
@@ -460,6 +466,7 @@ type GraphicsStoreOptions = {
     root: string;
     state: StateStore;
     logs: LogStore;
+    onChange: () => void;
     isGraphicInUse?: (graphicId: string) => boolean;
 };
 
@@ -480,7 +487,7 @@ export type GraphicsStore = {
 };
 
 export function createGraphicsStore(options: GraphicsStoreOptions): GraphicsStore {
-    const { root, state, logs } = options;
+    const { root, state, logs, onChange } = options;
     let records: GraphicRecord[] = [];
     let scanQueue: Promise<void> = Promise.resolve();
     let uploadQueue: Promise<void> = Promise.resolve();
@@ -516,12 +523,17 @@ export function createGraphicsStore(options: GraphicsStoreOptions): GraphicsStor
                     }
                 }),
             );
-            records = resolveDuplicateIds(packages.flat());
+            const nextRecords = resolveDuplicateIds(packages.flat());
+            if (JSON.stringify(nextRecords) === JSON.stringify(records)) {
+                return undefined;
+            }
+            records = nextRecords;
 
             const invalidCount = records.filter((record) => !record.validation.valid).length;
             log(
                 `Scanned ${records.length} graphic manifest(s) in ${packageDirs.length} package(s), ${invalidCount} invalid`,
             );
+            onChange();
             return undefined;
         });
         scanQueue = run.catch(() => undefined);
@@ -587,6 +599,7 @@ export function createGraphicsStore(options: GraphicsStoreOptions): GraphicsStor
             });
             if (created) {
                 log(`Tombstoned graphic "${id}" (soft delete)`, id);
+                onChange();
             }
             return "tombstoned" as const;
         }
@@ -654,11 +667,12 @@ export function createGraphicsStore(options: GraphicsStoreOptions): GraphicsStor
         await mkdir(stagingDir, { recursive: true });
         try {
             try {
+                await requireDiskSpace(stagingDir, MAX_GRAPHIC_PACKAGE_BYTES);
                 await extractZip(zipPath, stagingDir);
             } catch (error) {
                 return {
                     ok: false,
-                    status: 400,
+                    status: isStorageError(error) ? 507 : 400,
                     error: `Could not read ZIP file: ${error instanceof Error ? error.message : String(error)}`,
                 };
             }

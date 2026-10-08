@@ -23,6 +23,7 @@ import { problem, problemResponse } from "./errors.ts";
 import type { ServerEvents } from "./events.ts";
 import type { GraphicsStore } from "./graphics.ts";
 import type { LogStore } from "./logs.ts";
+import { isTrustedRequest } from "./local-origins.ts";
 import { createOgrafApi } from "./ograf.ts";
 import type { RendererService } from "./renderers.ts";
 import type { RendererGateway } from "./sockets.ts";
@@ -58,6 +59,27 @@ export function createApp(deps: AppDeps): Hono {
     const { graphics, renderers, gateway, auth, logs, uploadTempDir, events, getLocalOrigins, renderHtml, appAssets } =
         deps;
     const app = new Hono();
+    app.use("*", async (c, next) => {
+        const url = new URL(c.req.url);
+        if (isHttpsRequest(c)) {
+            url.protocol = "https:";
+        }
+        if (!isTrustedRequest(url, c.req.header(), getLocalOrigins(), c.req.method)) {
+            return problemResponse(problem(403, "Forbidden", "Request host or origin is not allowed"), 403);
+        }
+        return next();
+    });
+    app.use("/api/*", async (c, next) => {
+        const hasBody = Number(c.req.header("content-length")) > 0 || Boolean(c.req.header("transfer-encoding"));
+        if (hasBody && !["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
+            const mediaType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+            const expected = c.req.path === "/api/admin/graphics/upload" ? "multipart/form-data" : "application/json";
+            if (mediaType !== expected) {
+                return problemResponse(problem(415, "Unsupported Media Type", `Expected ${expected}`), 415);
+            }
+        }
+        return next();
+    });
     const serveAppAsset = async (c: Context, key: string): Promise<Response> => {
         const asset = await appAssets.read(key);
         if (!asset) {
@@ -177,6 +199,24 @@ export function createApp(deps: AppDeps): Hono {
             : `${configScript}${html}`;
         c.header("Cache-Control", "no-store");
         c.header("Referrer-Policy", "no-referrer");
+        if (!config.accessToPublicInternet) {
+            const wsOrigin = new URL(c.req.url);
+            wsOrigin.protocol = isHttpsRequest(c) ? "wss:" : "ws:";
+            c.header(
+                "Content-Security-Policy",
+                [
+                    "default-src 'self' data: blob:",
+                    "script-src 'self' 'unsafe-inline' blob:",
+                    "style-src 'self' 'unsafe-inline'",
+                    `connect-src 'self' ${wsOrigin.origin}`,
+                    "frame-src 'none'",
+                    "object-src 'none'",
+                    "worker-src 'none'",
+                    "base-uri 'none'",
+                    "form-action 'none'",
+                ].join("; "),
+            );
+        }
         return c.html(finalHtml);
     });
 

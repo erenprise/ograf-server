@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { isRecord, isTokenScope, type TokenScope } from "../shared.ts";
+import { ID_PATTERN, isRecord, isTokenScope, type TokenScope } from "../shared.ts";
 import * as v from "valibot";
 import { hasErrorCode } from "./errors.ts";
-
-export const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/i;
 
 const TimestampSchema = v.pipe(
     v.string(),

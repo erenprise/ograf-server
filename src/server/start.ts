@@ -11,7 +11,7 @@ import { createServerEvents } from "./events.ts";
 import { watchGraphicsFolder } from "./graphics-watcher.ts";
 import { createGraphicsStore } from "./graphics.ts";
 import { createLiveUpdateGateway } from "./live-updates.ts";
-import { localOrigins } from "./local-origins.ts";
+import { isTrustedRequest, localOrigins } from "./local-origins.ts";
 import { createLogStore } from "./logs.ts";
 import { createRendererService } from "./renderers.ts";
 import { createRendererGateway } from "./sockets.ts";
@@ -20,8 +20,8 @@ import { createStateStore } from "./state.ts";
 const RENDERER_WS = /^\/render\/([^/]+)\/ws$/;
 const LIVE_UPDATE_WS = /^\/api\/ograf\/v1\/renderers\/([^/]+)\/target\/graphicInstance\/updateAction$/;
 
-function rejectUpgrade(socket: Duplex, status: 401 | 404): void {
-    const text = status === 401 ? "Unauthorized" : "Not Found";
+function rejectUpgrade(socket: Duplex, status: 401 | 403 | 404): void {
+    const text = status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : "Not Found";
     socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\n\r\n`);
     socket.destroy();
 }
@@ -89,6 +89,7 @@ async function main() {
         state: state,
         logs: logs,
         isGraphicInUse: gateway.isGraphicInUse,
+        onChange: () => events.emit({ type: "graphics.changed" }),
     });
     const logStorageError = (message: string, error: unknown) =>
         logs.add({
@@ -97,17 +98,12 @@ async function main() {
             message: `${message}: ${error instanceof Error ? error.message : String(error)}`,
         });
 
-    const rescanGraphics = () =>
-        graphics.scan().then(
-            () => events.emit({ type: "graphics.changed" }),
-            (error: unknown) => logStorageError("Graphics rescan failed", error),
-        );
-
     // Started before the initial scan so changes made in between are not missed.
     await mkdir(graphicsDir, { recursive: true });
     const graphicsWatcher = watchGraphicsFolder({
         root: graphicsDir,
-        onChange: () => void rescanGraphics(),
+        onChange: () =>
+            void graphics.scan().catch((error: unknown) => logStorageError("Graphics rescan failed", error)),
         onError: (error) => logStorageError("Graphics folder watcher error", error),
     });
 
@@ -123,11 +119,26 @@ async function main() {
         vite ? vite.middlewares(req, res, () => honoListener(req, res)) : void honoListener(req, res),
     );
 
+    const listenPort = () => {
+        const address = server.address();
+        return typeof address === "object" && address ? address.port : port;
+    };
+    const configuredOrigins = (process.env.OGRAF_ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => new URL(origin).origin);
+    const allowedOrigins = () => [...localOrigins(listenPort()), ...configuredOrigins];
+
     if (isDev) {
         const { createServer: createViteServer } = await import("vite");
         vite = await createViteServer({
             root: root,
-            server: { middlewareMode: { server: server }, ws: { server: server } },
+            server: {
+                middlewareMode: { server: server },
+                ws: { server: server },
+                allowedHosts: allowedOrigins().map((origin) => new URL(origin).hostname),
+            },
             appType: "custom",
         });
     }
@@ -149,22 +160,25 @@ async function main() {
         logs: logs,
         uploadTempDir: uploadTempDir,
         events: events,
-        getLocalOrigins: () => localOrigins(listenPort()),
+        getLocalOrigins: allowedOrigins,
         renderHtml: renderHtml,
         appAssets: appAssets,
     });
 
     honoListener = getRequestListener(app.fetch);
 
-    const listenPort = () => {
-        const address = server.address();
-        return typeof address === "object" && address ? address.port : port;
-    };
-
     server.on("upgrade", (req, socket, head) => {
         let pathname: string;
         try {
-            pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+            const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+            if (req.headers["x-forwarded-proto"] === "https") {
+                url.protocol = "https:";
+            }
+            if (!isTrustedRequest(url, req.headers, allowedOrigins())) {
+                rejectUpgrade(socket, 403);
+                return;
+            }
+            pathname = url.pathname;
         } catch {
             socket.destroy();
             return;

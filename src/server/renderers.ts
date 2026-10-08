@@ -58,7 +58,7 @@ type RenderTargetInfo = {
     description?: string;
     graphicInstances: GraphicInstanceInfo[];
 };
-export type PublicRendererInfo = {
+type PublicRendererInfo = {
     id: string;
     name: string;
     description?: string;
@@ -137,7 +137,7 @@ export function createRendererService(
         }
 
         const live = gateway.getLiveTarget(id, renderTarget);
-        const graphicInstances = Array.from(live?.instances.entries() ?? []).map(([graphicInstanceId, inst]) => ({
+        const graphicInstances = Array.from(live?.entries() ?? []).map(([graphicInstanceId, inst]) => ({
             graphicInstanceId: graphicInstanceId,
             graphic: graphicToListInfo(inst.graphicId),
         }));
@@ -334,10 +334,6 @@ export function createRendererService(
         const config = getConfig(rendererId);
         if (!config?.layers.some((layer) => layer.id === layerId)) {
             return undefined;
-        }
-
-        if (gateway.isConnected(rendererId)) {
-            await gateway.sendCommand(rendererId, "clear", { filters: [{ renderTarget: { layer: layerId } }] });
         }
 
         const updated = await mutateRenderer(rendererId, (renderer) => {

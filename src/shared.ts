@@ -2,6 +2,8 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 
 export type JsonObject = { [key: string]: JsonValue };
 
+export const ID_PATTERN = /^[A-Za-z0-9][_\-A-Za-z0-9]*$/;
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -35,6 +37,14 @@ export type RendererStatus = {
     status: "OK" | "WARNING" | "ERROR";
     message: string;
 };
+
+export function isRendererStatus(value: unknown): value is RendererStatus {
+    return (
+        isRecord(value) &&
+        (value.status === "OK" || value.status === "WARNING" || value.status === "ERROR") &&
+        typeof value.message === "string"
+    );
+}
 
 export type Resolution = {
     width: number;
@@ -77,11 +87,34 @@ export function toRendererRuntimeConfig(config: RendererConfig): RendererRuntime
 }
 
 export type InstanceSnapshot = {
-    graphicInstanceId: string;
-    graphicId: string;
-    renderTarget: JsonObject;
     currentStep?: number;
+    load: RendererCommandMap["load"]["payload"];
+    latestUpdate?: { data?: unknown };
+    playing: boolean;
 };
+
+export function isLoadPayload(value: unknown): value is RendererCommandMap["load"]["payload"] {
+    return (
+        isRecord(value) &&
+        typeof value.graphicInstanceId === "string" &&
+        typeof value.graphicId === "string" &&
+        typeof value.graphicRevision === "string" &&
+        typeof value.mainUrl === "string" &&
+        isJsonObject(value.renderTarget) &&
+        isRecord(value.manifest)
+    );
+}
+
+export function isInstanceSnapshot(value: unknown): value is InstanceSnapshot {
+    return (
+        isRecord(value) &&
+        isLoadPayload(value.load) &&
+        typeof value.playing === "boolean" &&
+        (value.currentStep === undefined ||
+            (typeof value.currentStep === "number" && Number.isSafeInteger(value.currentStep))) &&
+        (value.latestUpdate === undefined || isRecord(value.latestUpdate))
+    );
+}
 
 export type GraphicFilter = {
     renderTarget?: JsonObject;
@@ -105,14 +138,6 @@ type CommandResult =
       }
     | undefined;
 
-type PlayResult =
-    | {
-          statusCode: number;
-          statusMessage?: string;
-          currentStep?: number;
-      }
-    | undefined;
-
 export type RendererCommandMap = {
     load: {
         payload: {
@@ -132,7 +157,7 @@ export type RendererCommandMap = {
     };
     playAction: {
         payload: { graphicInstanceId: string; delta?: number; goto?: number; skipAnimation?: boolean };
-        result: PlayResult;
+        result: (NonNullable<CommandResult> & { currentStep?: number }) | undefined;
     };
     stopAction: {
         payload: { graphicInstanceId: string; skipAnimation?: boolean };
@@ -164,10 +189,9 @@ type RendererCommandMessage = {
 
 export type RendererCommandResult = RendererCommandMap[RendererCommandType]["result"];
 
-export type RendererCommandExecution = {
-    result?: RendererCommandResult;
-    instances?: InstanceSnapshot[];
-};
+export function commandSucceeded(result: RendererCommandResult): boolean {
+    return !result || !("statusCode" in result) || result.statusCode < 400;
+}
 
 type RendererResultError = {
     message: string;
@@ -183,22 +207,13 @@ export type RendererResultMessage = {
     instances?: InstanceSnapshot[];
 };
 
-type RendererHelloMessage = {
-    type: "hello";
-    rendererId: string;
-    instances: InstanceSnapshot[];
-};
-
-type RendererConfigMessage = {
-    type: "config";
-    config: RendererRuntimeConfig;
-};
-
 export type RendererMessage =
     | RendererCommandMessage
     | RendererResultMessage
-    | RendererHelloMessage
-    | RendererConfigMessage;
+    | { type: "hello"; rendererId: string; loadedInstanceIds: string[]; onAir: InstanceSnapshot[] }
+    | { type: "config"; config: RendererRuntimeConfig }
+    | { type: "status"; status: RendererStatus }
+    | { type: "ping" | "pong" };
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -238,12 +253,13 @@ export type AuthTokenSummary = {
 
 export const MAX_PACKAGE_ID_LENGTH = 128;
 export const MAX_CONTROL_MESSAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_GRAPHIC_PACKAGE_BYTES = 200 * 1024 * 1024;
 
 export const DEFAULT_RESOLUTION: Resolution = { width: 1920, height: 1080 };
 export const DEFAULT_FRAME_RATE = 50;
 
 export function matchesGraphicFilter(
-    instance: Pick<InstanceSnapshot, "renderTarget" | "graphicId" | "graphicInstanceId">,
+    instance: Pick<RendererCommandMap["load"]["payload"], "renderTarget" | "graphicId" | "graphicInstanceId">,
     filter: GraphicFilter,
 ): boolean {
     return (

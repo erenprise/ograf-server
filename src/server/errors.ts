@@ -45,9 +45,21 @@ export class GraphicMethodError extends Error {}
 
 export class InvalidRequestError extends Error {}
 
+export class InsufficientStorageError extends Error {}
+
 export class OgrafNotFoundError extends Error {}
 
+export function isStorageError(error: unknown): boolean {
+    return error instanceof InsufficientStorageError || hasErrorCode(error, "ENOSPC", "EDQUOT");
+}
+
 export function errorToProblem(error: unknown, instance?: string): { status: number; body: ProblemDetails } {
+    if (error instanceof InvalidRequestError) {
+        return { status: 400, body: problem(400, "Bad Request", error.message, instance) };
+    }
+    if (isStorageError(error)) {
+        return { status: 507, body: problem(507, "Insufficient Storage", "Not enough free disk space", instance) };
+    }
     if (error instanceof OgrafNotFoundError) {
         return { status: 404, body: problem(404, "Not Found", error.message, instance) };
     }

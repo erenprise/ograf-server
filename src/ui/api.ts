@@ -1,10 +1,10 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { ValidationIssue } from "@streamshapers/ograf-validator-core";
-import { hc } from "hono/client";
+import { hc, type InferResponseType } from "hono/client";
 import createClient from "openapi-fetch";
 import type { GraphicsManifest, ServerApi } from "ograf";
 import type { AdminApi } from "../server/admin.ts";
-import type { CreateRendererInput, PublicRendererInfo } from "../server/renderers.ts";
+import type { CreateRendererInput } from "../server/renderers.ts";
 import {
     isRecord,
     type AuthTokenSummary,
@@ -12,8 +12,6 @@ import {
     type JsonObject,
     type LayerConfig,
     type LogEntry,
-    type RendererConfig,
-    type RendererStatus,
     type TokenScope,
 } from "../shared.ts";
 
@@ -55,13 +53,10 @@ async function unwrap<T>(request: PromiseLike<{ data?: unknown; error?: unknown 
     return result.data as T;
 }
 
-type AdminRendererLayer = LayerConfig & { graphicCount: number };
 type GraphicThumbnail = NonNullable<GraphicsManifest["thumbnails"]>[number];
 
-export type AdminRendererSummary = Omit<RendererConfig, "layers"> & {
-    status: RendererStatus;
-    layers: AdminRendererLayer[];
-};
+export type AdminRendererSummary = InferResponseType<typeof admin.renderers.$get>["renderers"][number];
+export type GraphicInstance = AdminRendererSummary["layers"][number]["graphicInstances"][number];
 
 export type AdminGraphicSummary = {
     id: string;
@@ -82,38 +77,18 @@ export type AdminGraphicSummary = {
     deleteAfter?: string;
 };
 
-export type { CreateRendererInput, PublicRendererInfo };
-export type PublicRenderTargetInfo = PublicRendererInfo["renderTargets"][number];
-export type PublicGraphicInstance = PublicRenderTargetInfo["graphicInstances"][number];
-
 export const adminRenderersQuery = queryOptions({
     queryKey: ["admin", "renderers"],
+    staleTime: Infinity,
     queryFn: async ({ signal }) => {
         const response = await admin.renderers.$get(undefined, { init: { signal: signal } });
         return (await readJsonResponse<{ renderers: AdminRendererSummary[] }>(response)).renderers;
     },
 });
 
-export const publicRendererQuery = (rendererId: string) =>
-    queryOptions({
-        queryKey: ["ograf", "renderer", rendererId],
-        queryFn: async ({ signal }): Promise<PublicRendererInfo> => {
-            const data = await unwrap<{ renderer?: PublicRendererInfo }>(
-                ograf.GET("/renderers/{rendererId}", {
-                    params: { path: { rendererId: rendererId } },
-                    signal: signal,
-                }),
-                "Renderer not found",
-            );
-            if (!data.renderer) {
-                throw new Error("Renderer not found");
-            }
-            return data.renderer;
-        },
-    });
-
 export const adminGraphicsQuery = queryOptions({
     queryKey: ["admin", "graphics"],
+    staleTime: Infinity,
     queryFn: async ({ signal }) => {
         const response = await admin.graphics.packages.$get(undefined, { init: { signal: signal } });
         return (await readJsonResponse<{ graphics: AdminGraphicSummary[] }>(response)).graphics;
@@ -122,7 +97,8 @@ export const adminGraphicsQuery = queryOptions({
 
 export const adminGraphicDetailQuery = (graphicId: string) =>
     queryOptions({
-        queryKey: ["admin", "graphic", graphicId],
+        queryKey: ["admin", "graphics", graphicId],
+        staleTime: Infinity,
         queryFn: async ({ signal }) => {
             const body = await readJsonResponse<{ graphic: Record<string, unknown> }>(
                 admin.graphics[":graphicId"].$get({ param: { graphicId: graphicId } }, { init: { signal: signal } }),
@@ -241,12 +217,12 @@ export const playGraphicInstance = (
     rendererId: string,
     renderTarget: JsonObject,
     graphicInstanceId: string,
-    delta: number,
+    params: { delta?: number; goto?: number },
 ) =>
     unwrap(
         ograf.POST("/renderers/{rendererId}/target/graphicInstance/playAction", {
             params: { path: { rendererId: rendererId } },
-            body: { renderTarget: renderTarget, graphicInstanceId: graphicInstanceId, params: { delta: delta } },
+            body: { renderTarget: renderTarget, graphicInstanceId: graphicInstanceId, params: params },
         }),
         "Failed to play graphic",
     );

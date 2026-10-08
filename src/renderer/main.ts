@@ -16,4 +16,19 @@ if (!config) {
 
 const runtime = createGraphicsRuntime(config);
 
-connectRendererSocket(config.id, runtime.getSnapshot, runtime.handleCommand, runtime.applyConfig);
+const socket = connectRendererSocket(config.id, runtime);
+window.addEventListener("error", (event) =>
+    socket.reportStatus({ status: "ERROR", message: event.message || "Renderer resource failed to load" }),
+);
+window.addEventListener("unhandledrejection", (event) =>
+    socket.reportStatus({
+        status: "ERROR",
+        message: event.reason instanceof Error ? event.reason.message : String(event.reason),
+    }),
+);
+document.addEventListener("securitypolicyviolation", (event) =>
+    socket.reportStatus({
+        status: "WARNING",
+        message: `Renderer blocked ${event.blockedURI} (${event.violatedDirective})`,
+    }),
+);

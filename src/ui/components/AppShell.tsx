@@ -164,12 +164,9 @@ function AdminEvents() {
 
     useEffect(() => {
         const source = new EventSource("/api/admin/events");
-        const sync = () => {
+        source.addEventListener("open", () => {
             void queryClient.invalidateQueries({ queryKey: ["admin"] });
-            void queryClient.invalidateQueries({ queryKey: ["ograf", "renderer"] });
-            void queryClient.invalidateQueries({ queryKey: ["ograf", "graphics"] });
-        };
-        source.addEventListener("open", sync);
+        });
         source.addEventListener("message", (event: MessageEvent<string>) => {
             try {
                 const data: unknown = JSON.parse(event.data);
@@ -183,10 +180,8 @@ function AdminEvents() {
                     ]);
                 } else if (data.type === "renderers.changed") {
                     void queryClient.invalidateQueries({ queryKey: adminRenderersQuery.queryKey });
-                    void queryClient.invalidateQueries({ queryKey: ["ograf", "renderer"] });
                 } else {
                     void queryClient.invalidateQueries({ queryKey: ["admin", "graphics"] });
-                    void queryClient.invalidateQueries({ queryKey: ["ograf", "graphics"] });
                 }
             } catch {
                 return;

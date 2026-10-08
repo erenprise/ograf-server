@@ -11,12 +11,10 @@ export function LoadGraphicDialog({
     rendererId,
     renderTarget,
     onClose,
-    onLoaded,
 }: {
     rendererId: string;
     renderTarget: JsonObject;
     onClose: () => void;
-    onLoaded: () => void;
 }) {
     const { data: graphics, error: graphicsError } = useQuery(adminGraphicsQuery);
     const [graphicId, setGraphicId] = useState("");
@@ -49,10 +47,7 @@ export function LoadGraphicDialog({
 
     const load = useMutation({
         mutationFn: () => loadGraphic(rendererId, renderTarget, graphicId, formData),
-        onSuccess: () => {
-            onLoaded();
-            onClose();
-        },
+        onSuccess: onClose,
     });
 
     return (

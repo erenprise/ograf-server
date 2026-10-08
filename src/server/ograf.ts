@@ -112,7 +112,6 @@ export function createOgrafApi({ graphics, renderers, gateway, events }: OgrafAp
         if (result === "not-found") {
             return notFound(c, "No Graphic found with the given ID");
         }
-        events.emit({ type: "graphics.changed" });
         return c.json({});
     });
 
